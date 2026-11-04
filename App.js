@@ -1,20 +1,53 @@
+import 'react-native-gesture-handler';
+import React from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { DataProvider, useData } from './src/context/DataContext';
+import AppNavigator from './src/navigation/AppNavigator';
+import LoadingState from './src/components/LoadingState';
+import ErrorState from './src/components/ErrorState';
+import { colors } from './src/theme';
+
+function Root() {
+  const { ready, initError, retryInit } = useData();
+
+  if (initError) {
+    return (
+      <ErrorState
+        message={`${initError} Retry does not delete existing data.`}
+        onRetry={retryInit}
+      />
+    );
+  }
+
+  if (!ready) {
+    return <LoadingState message="Starting UniPocket offline database…" />;
+  }
+
+  return (
+    <>
+      <StatusBar style="dark" />
+      <AppNavigator />
+    </>
+  );
+}
 
 export default function App() {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <SafeAreaProvider>
+      <DataProvider>
+        <View style={styles.root}>
+          <Root />
+        </View>
+      </DataProvider>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: colors.background,
   },
 });

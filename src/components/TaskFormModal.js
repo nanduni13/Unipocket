@@ -1,34 +1,51 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Keyboard,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker, {
+  DateTimePickerAndroid,
+} from '@react-native-community/datetimepicker';
+
 import FormField from './FormField';
 import FormModalScaffold from './FormModalScaffold';
 import PrimaryButton from './PrimaryButton';
+
 import {
   getLocalDateString,
   getLocalDateTimeString,
   parseLocalDateTime,
 } from '../utils/dates';
-import { interpretDatePickerEvent } from '../utils/pickerEvents';
-import { ALL_TASK_TYPES, buildTaskSavePayload, typeLabel } from '../utils/taskTypes';
+import {
+  ALL_TASK_TYPES,
+  buildTaskSavePayload,
+  typeLabel,
+} from '../utils/taskTypes';
 import { validateTaskForm } from '../utils/validation';
 import { colors, radii, spacing, typography } from '../theme';
 
+function validDate(value) {
+  return value instanceof Date && !Number.isNaN(value.getTime());
+}
+
 function buildInitial(initialValues, defaultType, defaultDate, allowedTypes) {
   const requested = initialValues?.type || defaultType || 'assignment';
-  const type = allowedTypes.includes(requested) ? requested : allowedTypes[0];
+
+  const type = allowedTypes.includes(requested)
+    ? requested
+    : allowedTypes[0];
+
   const dueDate =
     parseLocalDateTime(initialValues?.dueAt) ||
     parseLocalDateTime(`${defaultDate}T09:00:00`) ||
     new Date();
-  const scheduled =
+
+  const scheduledDate =
     parseLocalDateTime(initialValues?.scheduledDate) ||
     parseLocalDateTime(defaultDate) ||
     new Date();
@@ -36,10 +53,23 @@ function buildInitial(initialValues, defaultType, defaultDate, allowedTypes) {
   return {
     title: initialValues?.title || '',
     description: initialValues?.description || '',
-    subjectId: initialValues?.subjectId ? String(initialValues.subjectId) : '',
+    subjectId: initialValues?.subjectId
+      ? String(initialValues.subjectId)
+      : '',
     type,
     dueDate,
-    scheduledDate: scheduled,
+    scheduledDate,
+  };
+}
+
+function formSnapshot(form) {
+  return {
+    title: form.title,
+    description: form.description,
+    subjectId: form.subjectId,
+    type: form.type,
+    dueKey: getLocalDateTimeString(form.dueDate),
+    scheduledKey: getLocalDateString(form.scheduledDate),
   };
 }
 
@@ -57,6 +87,7 @@ export default function TaskFormModal({
   onCreateSubject,
 }) {
   const today = defaultDate || getLocalDateString();
+
   const [form, setForm] = useState(() =>
     buildInitial(initialValues, defaultType, today, allowedTypes),
   );
@@ -64,80 +95,336 @@ export default function TaskFormModal({
   const [saving, setSaving] = useState(false);
   const [baseline, setBaseline] = useState(null);
   const [pickerMode, setPickerMode] = useState(null);
-  const pickerTimerRef = useRef(null);
+
+  const savingRef = useRef(false);
+  const aliveRef = useRef(true);
+  const visibleRef = useRef(visible);
+  const androidPickerRef = useRef(null);
+  const sessionRef = useRef(0);
+  const wasVisibleRef = useRef(false);
+  const editingIdRef = useRef(null);
+
+  visibleRef.current = visible;
+
+  const closePickers = () => {
+    setPickerMode(null);
+
+    if (Platform.OS === 'android' && androidPickerRef.current) {
+      const nativeMode = androidPickerRef.current;
+      androidPickerRef.current = null;
+
+      try {
+        Promise.resolve(
+          DateTimePickerAndroid.dismiss(nativeMode),
+        ).catch(() => {});
+      } catch {
+        // The native dialog may already have closed.
+      }
+    }
+  };
+
+  useEffect(() => {
+    aliveRef.current = true;
+
+    return () => {
+      aliveRef.current = false;
+      sessionRef.current += 1;
+
+      if (Platform.OS === 'android' && androidPickerRef.current) {
+        const nativeMode = androidPickerRef.current;
+        androidPickerRef.current = null;
+
+        try {
+          Promise.resolve(
+            DateTimePickerAndroid.dismiss(nativeMode),
+          ).catch(() => {});
+        } catch {
+          // No active native dialog to dismiss.
+        }
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!visible) {
-      if (pickerTimerRef.current) {
-        clearTimeout(pickerTimerRef.current);
-        pickerTimerRef.current = null;
-      }
-      setPickerMode(null);
-      return undefined;
+      wasVisibleRef.current = false;
+      editingIdRef.current = null;
+      sessionRef.current += 1;
+      closePickers();
+      return;
     }
-    const next = buildInitial(initialValues, defaultType, today, allowedTypes);
-    setForm(next);
-    setBaseline({
-      title: next.title,
-      description: next.description,
-      subjectId: next.subjectId,
-      type: next.type,
-      dueKey: getLocalDateTimeString(next.dueDate),
-      scheduledKey: getLocalDateString(next.scheduledDate),
-    });
-    setErrors({});
-    setSaving(false);
-    setPickerMode(null);
-    return () => {
-      if (pickerTimerRef.current) {
-        clearTimeout(pickerTimerRef.current);
-        pickerTimerRef.current = null;
-      }
-    };
-  }, [visible, initialValues, defaultType, today, allowedTypes]);
+
+    const editingId =
+      mode === 'edit' ? initialValues?.id ?? null : null;
+
+    const opening = !wasVisibleRef.current;
+    const differentTask =
+      mode === 'edit' && editingIdRef.current !== editingId;
+
+    // Do not reset user input when parent data refreshes.
+    if (opening || differentTask) {
+      sessionRef.current += 1;
+      closePickers();
+
+      const next = buildInitial(
+        initialValues,
+        defaultType,
+        today,
+        allowedTypes,
+      );
+
+      setForm(next);
+      setBaseline(formSnapshot(next));
+      setErrors({});
+      setSaving(false);
+      savingRef.current = false;
+    }
+
+    wasVisibleRef.current = true;
+    editingIdRef.current = editingId;
+  }, [
+    visible,
+    mode,
+    initialValues,
+    defaultType,
+    today,
+    allowedTypes,
+  ]);
 
   const isDirty = useMemo(() => {
     if (!baseline) return false;
-    return (
-      form.title !== baseline.title ||
-      form.description !== baseline.description ||
-      form.subjectId !== baseline.subjectId ||
-      form.type !== baseline.type ||
-      getLocalDateTimeString(form.dueDate) !== baseline.dueKey ||
-      getLocalDateString(form.scheduledDate) !== baseline.scheduledKey
+
+    const current = formSnapshot(form);
+
+    return Object.keys(baseline).some(
+      (key) => current[key] !== baseline[key],
     );
   }, [form, baseline]);
 
-  const requestClose = () => {
-    if (saving) return;
-    if (isDirty) {
-      Alert.alert('Discard changes?', 'You have unsaved changes.', [
-        { text: 'Keep editing', style: 'cancel' },
-        { text: 'Discard', style: 'destructive', onPress: onClose },
-      ]);
-      return;
-    }
+  const finishClose = () => {
+    sessionRef.current += 1;
+    closePickers();
     onClose();
   };
 
+  const requestClose = () => {
+    if (savingRef.current) return;
+
+    if (isDirty) {
+      Alert.alert(
+        'Discard changes?',
+        'You have unsaved changes.',
+        [
+          { text: 'Keep editing', style: 'cancel' },
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: finishClose,
+          },
+        ],
+      );
+      return;
+    }
+
+    finishClose();
+  };
+
+  const requestCreateSubject = () => {
+    if (savingRef.current || !onCreateSubject) return;
+
+    const proceed = () => {
+      sessionRef.current += 1;
+      closePickers();
+      onCreateSubject();
+    };
+
+    if (isDirty) {
+      Alert.alert(
+        'Leave this form?',
+        'Your unsaved task changes will be discarded.',
+        [
+          { text: 'Keep editing', style: 'cancel' },
+          {
+            text: 'Continue',
+            onPress: proceed,
+          },
+        ],
+      );
+      return;
+    }
+
+    proceed();
+  };
+
   const changeType = (type) => {
-    if (lockType || !allowedTypes.includes(type)) return;
-    setForm((f) => ({ ...f, type }));
-    setErrors((e) => {
-      const next = { ...e };
+    if (
+      savingRef.current ||
+      lockType ||
+      !allowedTypes.includes(type)
+    ) {
+      return;
+    }
+
+    closePickers();
+    setForm((current) => ({ ...current, type }));
+
+    setErrors((current) => {
+      const next = { ...current };
+      delete next.type;
       delete next.dueAt;
       delete next.scheduledDate;
-      delete next.type;
+      delete next.picker;
       return next;
     });
   };
 
+  const applyPickerValue = (target, selected) => {
+    if (!validDate(selected)) return;
+
+    setForm((current) => {
+      if (target === 'scheduled') {
+        return {
+          ...current,
+          scheduledDate: new Date(
+            selected.getFullYear(),
+            selected.getMonth(),
+            selected.getDate(),
+          ),
+        };
+      }
+
+      const next = new Date(current.dueDate);
+
+      if (target === 'dueDate') {
+        next.setFullYear(
+          selected.getFullYear(),
+          selected.getMonth(),
+          selected.getDate(),
+        );
+      } else if (target === 'dueTime') {
+        next.setHours(
+          selected.getHours(),
+          selected.getMinutes(),
+          0,
+          0,
+        );
+      } else {
+        return current;
+      }
+
+      return { ...current, dueDate: next };
+    });
+
+    setErrors((current) => {
+      const next = { ...current };
+      delete next.dueAt;
+      delete next.scheduledDate;
+      delete next.picker;
+      return next;
+    });
+  };
+
+  const openPicker = (target) => {
+    if (!visibleRef.current || savingRef.current) return;
+
+    Keyboard.dismiss();
+
+    const value =
+      target === 'scheduled'
+        ? form.scheduledDate
+        : form.dueDate;
+
+    if (!validDate(value)) {
+      setErrors((current) => ({
+        ...current,
+        picker: 'Invalid date. Close this form and open it again.',
+      }));
+      return;
+    }
+
+    if (Platform.OS === 'ios') {
+      setPickerMode(target);
+      return;
+    }
+
+    if (Platform.OS !== 'android') {
+      Alert.alert(
+        'Date picker',
+        'Please use the Android or iOS app to select a date and time.',
+      );
+      return;
+    }
+
+    if (androidPickerRef.current) return;
+
+    const nativeMode = target === 'dueTime' ? 'time' : 'date';
+    const currentSession = sessionRef.current;
+
+    androidPickerRef.current = nativeMode;
+
+    try {
+      DateTimePickerAndroid.open({
+        value: new Date(value.getTime()),
+        mode: nativeMode,
+        display: 'default',
+        is24Hour: true,
+        onChange: (event, selected) => {
+          if (
+            !aliveRef.current ||
+            !visibleRef.current ||
+            currentSession !== sessionRef.current
+          ) {
+            return;
+          }
+
+          androidPickerRef.current = null;
+
+          // Android Back/Cancel must leave the form unchanged.
+          if (event.type !== 'set' || !selected) return;
+
+          applyPickerValue(target, selected);
+        },
+      });
+    } catch (error) {
+      androidPickerRef.current = null;
+
+      const message =
+        error?.message || 'Could not open the date/time picker.';
+
+      setErrors((current) => ({
+        ...current,
+        picker: message,
+      }));
+
+      Alert.alert('Could not open picker', message);
+    }
+  };
+
+  const onIOSPickerChange = (event, selected) => {
+    if (event.type === 'dismissed' || !selected) return;
+    applyPickerValue(pickerMode, selected);
+  };
+
   const handleSave = async () => {
+    if (savingRef.current) return;
+
+    if (
+      !validDate(form.dueDate) ||
+      !validDate(form.scheduledDate)
+    ) {
+      setErrors({
+        form: 'Please select a valid date and time.',
+      });
+      return;
+    }
+
     const built = buildTaskSavePayload(
       {
         title: form.title,
         description: form.description,
-        subjectId: form.subjectId ? Number(form.subjectId) : null,
+        subjectId: form.subjectId
+          ? Number(form.subjectId)
+          : null,
         type: form.type,
         dueAt: getLocalDateTimeString(form.dueDate),
         scheduledDate: getLocalDateString(form.scheduledDate),
@@ -151,14 +438,34 @@ export default function TaskFormModal({
       return;
     }
 
-    const { errors: nextErrors, isValid, values } = validateTaskForm(
-      built.payload,
-      { allowedTypes },
-    );
-    setErrors(nextErrors);
-    if (!isValid || saving) return;
+    const {
+      errors: nextErrors,
+      isValid,
+      values,
+    } = validateTaskForm(built.payload, { allowedTypes });
 
+    if (
+      !subjects.some(
+        (subject) =>
+          Number(subject.id) === Number(built.payload.subjectId),
+      )
+    ) {
+      setErrors({
+        ...nextErrors,
+        subjectId: 'Please select an existing subject.',
+      });
+      return;
+    }
+
+    setErrors(nextErrors);
+    if (!isValid) return;
+
+    savingRef.current = true;
     setSaving(true);
+    closePickers();
+
+    const currentSession = sessionRef.current;
+
     try {
       await onSubmit({
         ...values,
@@ -168,44 +475,33 @@ export default function TaskFormModal({
         type: built.payload.type,
         status: built.payload.status,
       });
-      onClose();
+
+      if (
+        aliveRef.current &&
+        visibleRef.current &&
+        currentSession === sessionRef.current
+      ) {
+        finishClose();
+      }
     } catch (error) {
-      setErrors((prev) => ({
-        ...prev,
-        form: error?.message || 'Could not save task.',
-      }));
+      if (
+        aliveRef.current &&
+        visibleRef.current &&
+        currentSession === sessionRef.current
+      ) {
+        setErrors((current) => ({
+          ...current,
+          form: error?.message || 'Could not save task.',
+        }));
+      }
     } finally {
-      setSaving(false);
-    }
-  };
-
-  const onPickerChange = (event, selected) => {
-    const result = interpretDatePickerEvent(event, selected, Platform.OS);
-    if (Platform.OS === 'android') {
-      setPickerMode(null);
-    }
-    if (result.action !== 'set') {
-      return;
-    }
-
-    if (pickerMode === 'dueDate') {
-      setForm((f) => {
-        const next = new Date(f.dueDate);
-        next.setFullYear(
-          result.date.getFullYear(),
-          result.date.getMonth(),
-          result.date.getDate(),
-        );
-        return { ...f, dueDate: next };
-      });
-    } else if (pickerMode === 'dueTime') {
-      setForm((f) => {
-        const next = new Date(f.dueDate);
-        next.setHours(result.date.getHours(), result.date.getMinutes(), 0, 0);
-        return { ...f, dueDate: next };
-      });
-    } else if (pickerMode === 'scheduled') {
-      setForm((f) => ({ ...f, scheduledDate: result.date }));
+      if (
+        aliveRef.current &&
+        currentSession === sessionRef.current
+      ) {
+        savingRef.current = false;
+        setSaving(false);
+      }
     }
   };
 
@@ -218,7 +514,9 @@ export default function TaskFormModal({
           ? 'Add Study Task'
           : 'Add Assignment';
 
-  const typeLocked = lockType || allowedTypes.length === 1;
+  const timeLabel =
+    `${String(form.dueDate.getHours()).padStart(2, '0')}:` +
+    String(form.dueDate.getMinutes()).padStart(2, '0');
 
   return (
     <FormModalScaffold
@@ -227,7 +525,7 @@ export default function TaskFormModal({
       onRequestClose={requestClose}
       footer={
         <PrimaryButton
-          title="Save"
+          title={mode === 'edit' ? 'Save Changes' : 'Save Task'}
           onPress={handleSave}
           loading={saving}
           disabled={saving || subjects.length === 0}
@@ -237,68 +535,104 @@ export default function TaskFormModal({
       <FormField
         label="Title *"
         value={form.title}
-        onChangeText={(title) => setForm((f) => ({ ...f, title }))}
+        onChangeText={(title) =>
+          setForm((current) => ({ ...current, title }))
+        }
         error={errors.title}
         placeholder="Enter a clear task title"
       />
 
       <Text style={styles.label}>Subject *</Text>
+
       {subjects.length === 0 ? (
         <View style={styles.emptySubjects}>
           <Text style={styles.emptyText}>
             Add a subject first. Tasks must be linked to an existing subject.
           </Text>
+
           {onCreateSubject ? (
             <PrimaryButton
               title="Create a subject"
-              onPress={onCreateSubject}
+              onPress={requestCreateSubject}
+              disabled={saving}
               style={styles.emptyBtn}
             />
           ) : null}
         </View>
       ) : (
         <View style={styles.chips}>
-          {subjects.map((s) => {
-            const selected = String(s.id) === String(form.subjectId);
+          {subjects.map((subject) => {
+            const selected =
+              String(subject.id) === String(form.subjectId);
+
             return (
               <Pressable
-                key={s.id}
-                onPress={() => setForm((f) => ({ ...f, subjectId: String(s.id) }))}
-                style={[styles.chip, selected && styles.chipSelected]}
+                key={subject.id}
+                disabled={saving}
+                accessibilityRole="button"
+                accessibilityState={{ selected, disabled: saving }}
+                onPress={() =>
+                  setForm((current) => ({
+                    ...current,
+                    subjectId: String(subject.id),
+                  }))
+                }
+                style={[
+                  styles.chip,
+                  selected && styles.chipSelected,
+                ]}
               >
-                <View style={[styles.dot, { backgroundColor: s.color }]} />
+                <View
+                  style={[
+                    styles.dot,
+                    { backgroundColor: subject.color },
+                  ]}
+                />
+
                 <Text
-                  style={[styles.chipText, selected && styles.chipTextSelected]}
+                  style={[
+                    styles.chipText,
+                    selected && styles.chipTextSelected,
+                  ]}
                   numberOfLines={2}
                 >
-                  {s.name}
+                  {subject.name}
                 </Text>
               </Pressable>
             );
           })}
         </View>
       )}
-      {errors.subjectId ? <Text style={styles.error}>{errors.subjectId}</Text> : null}
+
+      {errors.subjectId ? (
+        <Text style={styles.error}>{errors.subjectId}</Text>
+      ) : null}
 
       <Text style={styles.label}>Type *</Text>
+
       {lockType ? (
         <Text style={styles.lockHint}>
           Type is locked to {typeLabel(form.type)} for this screen.
         </Text>
       ) : mode === 'edit' ? (
         <Text style={styles.lockHint}>
-          Changing type moves this task to the matching screen and clears the unused date field.
+          Changing type moves this task to the matching screen and
+          clears the unused date field.
         </Text>
       ) : null}
+
       <View style={styles.typeRow}>
         {allowedTypes.map((type) => {
           const selected = form.type === type;
-          const disabled = lockType && !selected;
+          const disabled = saving || (lockType && !selected);
+
           return (
             <Pressable
               key={type}
               onPress={() => changeType(type)}
               disabled={disabled}
+              accessibilityRole="button"
+              accessibilityState={{ selected, disabled }}
               style={[
                 styles.typeChip,
                 selected && styles.typeSelected,
@@ -306,8 +640,10 @@ export default function TaskFormModal({
               ]}
             >
               <Text
-                style={[styles.typeText, selected && styles.typeTextSelected]}
-                numberOfLines={1}
+                style={[
+                  styles.typeText,
+                  selected && styles.typeTextSelected,
+                ]}
               >
                 {typeLabel(type)}
               </Text>
@@ -315,70 +651,122 @@ export default function TaskFormModal({
           );
         })}
       </View>
-      {errors.type ? <Text style={styles.error}>{errors.type}</Text> : null}
+
+      {errors.type ? (
+        <Text style={styles.error}>{errors.type}</Text>
+      ) : null}
 
       {form.type === 'study' ? (
         <View style={styles.block}>
           <Text style={styles.label}>Scheduled date *</Text>
-          <Pressable style={styles.dateBtn} onPress={() => setPickerMode('scheduled')}>
-            <Text style={styles.dateText}>{getLocalDateString(form.scheduledDate)}</Text>
+
+          <Pressable
+            style={styles.dateBtn}
+            onPress={() => openPicker('scheduled')}
+            disabled={saving}
+            accessibilityRole="button"
+            accessibilityLabel="Choose scheduled date"
+          >
+            <Text style={styles.dateCaption}>SELECT DATE</Text>
+            <Text style={styles.dateText}>
+              {getLocalDateString(form.scheduledDate)}
+            </Text>
           </Pressable>
+
           {errors.scheduledDate ? (
-            <Text style={styles.error}>{errors.scheduledDate}</Text>
+            <Text style={styles.error}>
+              {errors.scheduledDate}
+            </Text>
           ) : null}
         </View>
       ) : (
         <View style={styles.block}>
-          <Text style={styles.label}>Date and time *</Text>
+          <Text style={styles.label}>
+            {form.type === 'exam' ? 'Exam date and time *' : 'Deadline *'}
+          </Text>
+
           <View style={styles.dateRow}>
             <Pressable
-              style={[styles.dateBtn, styles.flex]}
-              onPress={() => setPickerMode('dueDate')}
+              style={[styles.dateBtn, styles.dateColumn]}
+              onPress={() => openPicker('dueDate')}
+              disabled={saving}
+              accessibilityRole="button"
+              accessibilityLabel="Choose date"
             >
-              <Text style={styles.dateText}>{getLocalDateString(form.dueDate)}</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.dateBtn, styles.flex]}
-              onPress={() => setPickerMode('dueTime')}
-            >
+              <Text style={styles.dateCaption}>DATE</Text>
               <Text style={styles.dateText}>
-                {String(form.dueDate.getHours()).padStart(2, '0')}:
-                {String(form.dueDate.getMinutes()).padStart(2, '0')}
+                {getLocalDateString(form.dueDate)}
               </Text>
             </Pressable>
+
+            <Pressable
+              style={[styles.dateBtn, styles.dateColumn]}
+              onPress={() => openPicker('dueTime')}
+              disabled={saving}
+              accessibilityRole="button"
+              accessibilityLabel="Choose time"
+            >
+              <Text style={styles.dateCaption}>TIME</Text>
+              <Text style={styles.dateText}>{timeLabel}</Text>
+            </Pressable>
           </View>
-          {errors.dueAt ? <Text style={styles.error}>{errors.dueAt}</Text> : null}
+
+          <Text style={styles.dateHint}>
+            Tap the date or time to change it.
+          </Text>
+
+          {errors.dueAt ? (
+            <Text style={styles.error}>{errors.dueAt}</Text>
+          ) : null}
         </View>
       )}
+
+      {errors.picker ? (
+        <Text style={styles.error}>{errors.picker}</Text>
+      ) : null}
+
+      {Platform.OS === 'ios' && pickerMode ? (
+        <View style={styles.iosPicker}>
+          <DateTimePicker
+            value={
+              pickerMode === 'scheduled'
+                ? form.scheduledDate
+                : form.dueDate
+            }
+            mode={pickerMode === 'dueTime' ? 'time' : 'date'}
+            display="spinner"
+            onChange={onIOSPickerChange}
+          />
+
+          <PrimaryButton
+            title="Done"
+            variant="secondary"
+            onPress={() => setPickerMode(null)}
+          />
+        </View>
+      ) : null}
 
       <FormField
         label="Description (optional)"
         value={form.description}
-        onChangeText={(description) => setForm((f) => ({ ...f, description }))}
+        onChangeText={(description) =>
+          setForm((current) => ({
+            ...current,
+            description,
+          }))
+        }
         placeholder="Notes, requirements, room…"
         multiline
       />
 
-      {errors.form ? <Text style={styles.error}>{errors.form}</Text> : null}
-
-      {pickerMode ? (
-        <DateTimePicker
-          value={
-            pickerMode === 'scheduled'
-              ? form.scheduledDate
-              : form.dueDate
-          }
-          mode={pickerMode === 'dueTime' ? 'time' : 'date'}
-          display="default"
-          onChange={onPickerChange}
-        />
+      {errors.form ? (
+        <Text style={styles.error}>{errors.form}</Text>
       ) : null}
     </FormModalScaffold>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   label: {
     ...typography.bodyBold,
     color: colors.text,
@@ -399,6 +787,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+    minHeight: 44,
     maxWidth: '100%',
     flexShrink: 1,
   },
@@ -458,6 +847,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
   },
   typeSelected: {
     backgroundColor: colors.primary,
@@ -479,20 +869,46 @@ const styles = StyleSheet.create({
   },
   dateRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
+  },
+  dateColumn: {
+    flexGrow: 1,
+    flexBasis: 130,
   },
   dateBtn: {
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     borderRadius: radii.md,
-    minHeight: 48,
+    minHeight: 70,
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  dateCaption: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: colors.textSecondary,
+    marginBottom: 6,
   },
   dateText: {
     ...typography.body,
-    color: colors.text,
+    color: colors.primaryDark,
+    fontWeight: '600',
+  },
+  dateHint: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+  },
+  iosPicker: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    padding: spacing.sm,
+    marginBottom: spacing.lg,
   },
   error: {
     ...typography.caption,

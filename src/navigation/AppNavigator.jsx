@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+
 import DashboardScreen from '../screens/DashboardScreen';
 import SubjectsScreen from '../screens/SubjectsScreen';
 import AssignmentsScreen from '../screens/AssignmentsScreen';
@@ -12,6 +13,13 @@ import { colors } from '../theme';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+
+const tabIcons = {
+  Dashboard: 'home-outline',
+  Subjects: 'library-outline',
+  Assignments: 'documents-outline',
+  StudyPlanner: 'calendar-outline',
+};
 
 function Tabs() {
   return (
@@ -31,21 +39,19 @@ function Tabs() {
           fontSize: 12,
           fontWeight: '600',
         },
-        tabBarIcon: ({ color, size }) => {
-          const map = {
-            Dashboard: 'home-outline',
-            Subjects: 'library-outline',
-            Assignments: 'documents-outline',
-            'Study Planner': 'calendar-outline',
-          };
-          return <Ionicons name={map[route.name]} size={size} color={color} />;
-        },
+        tabBarIcon: ({ color, size }) => (
+          <Ionicons name={tabIcons[route.name]} size={size} color={color} />
+        ),
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Subjects" component={SubjectsScreen} />
       <Tab.Screen name="Assignments" component={AssignmentsScreen} />
-      <Tab.Screen name="Study Planner" component={StudyPlannerScreen} />
+      <Tab.Screen
+        name="StudyPlanner"
+        component={StudyPlannerScreen}
+        options={{ tabBarLabel: 'Study Planner' }}
+      />
     </Tab.Navigator>
   );
 }

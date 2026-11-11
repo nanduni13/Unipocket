@@ -1,6 +1,10 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import {
+  DarkTheme,
+  DefaultTheme,
+  NavigationContainer,
+} from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,7 +14,7 @@ import SubjectsScreen from '../screens/SubjectsScreen';
 import AssignmentsScreen from '../screens/AssignmentsScreen';
 import StudyPlannerScreen from '../screens/StudyPlannerScreen';
 import TaskDetailsScreen from '../screens/TaskDetailsScreen';
-import { studentUi as ui } from '../theme/studentUi';
+import { useAppTheme } from '../theme/ThemeContext';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -23,20 +27,34 @@ const tabIcons = {
 };
 
 function Tabs() {
+  const { colors } = useAppTheme();
+  const muted =
+    colors.muted ?? colors.textMuted ?? colors.textSecondary ?? colors.text;
+  const activePillColor =
+    colors.lavender ?? colors.primarySoft ?? colors.background;
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: ui.primary,
-        tabBarInactiveTintColor: ui.muted,
-        tabBarStyle: styles.tabBar,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: muted,
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+        },
         tabBarItemStyle: styles.tabItem,
         tabBarLabelStyle: styles.tabLabel,
         tabBarIcon: ({ focused, color }) => {
           const icons = tabIcons[route.name];
 
           return (
-            <View style={[styles.iconPill, focused && styles.activePill]}>
+            <View
+              style={[
+                styles.iconPill,
+                focused && { backgroundColor: activePillColor },
+              ]}
+            >
               <Ionicons
                 name={focused ? icons.active : icons.inactive}
                 size={21}
@@ -64,13 +82,29 @@ function Tabs() {
 }
 
 export default function AppNavigator() {
+  const { colors, isDark, mode } = useAppTheme();
+  const baseTheme = (isDark ?? (mode === 'dark')) ? DarkTheme : DefaultTheme;
+
+  const navigationTheme = {
+    ...baseTheme,
+    colors: {
+      ...baseTheme.colors,
+      primary: colors.primary,
+      background: colors.background,
+      card: colors.surface,
+      text: colors.text,
+      border: colors.border,
+      notification: colors.danger ?? colors.error ?? baseTheme.colors.notification,
+    },
+  };
+
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navigationTheme}>
       <Stack.Navigator
         screenOptions={{
-          contentStyle: styles.screen,
-          headerStyle: styles.header,
-          headerTintColor: ui.text,
+          contentStyle: { backgroundColor: colors.background },
+          headerStyle: { backgroundColor: colors.surface },
+          headerTintColor: colors.text,
           headerShadowVisible: false,
           headerTitleStyle: styles.headerTitle,
         }}
@@ -91,18 +125,8 @@ export default function AppNavigator() {
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: ui.background,
-  },
-  header: {
-    backgroundColor: ui.surface,
-  },
   headerTitle: {
     fontWeight: '700',
-  },
-  tabBar: {
-    backgroundColor: ui.surface,
-    borderTopColor: ui.border,
   },
   tabItem: {
     paddingVertical: 3,
@@ -117,8 +141,5 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  activePill: {
-    backgroundColor: ui.lavender,
   },
 });

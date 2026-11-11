@@ -1,7 +1,8 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
 import ConfirmDialog from '../components/ConfirmDialog';
 import ErrorBanner from '../components/ErrorBanner';
 import ErrorState from '../components/ErrorState';
@@ -10,7 +11,6 @@ import PrimaryButton from '../components/PrimaryButton';
 import StatusChip from '../components/StatusChip';
 import TaskFormModal from '../components/TaskFormModal';
 import { useData } from '../context/DataContext';
-import { useForegroundAndMidnightRefresh } from '../hooks/useForegroundAndMidnightRefresh';
 import {
   deleteTask,
   getAllSubjects,
@@ -18,17 +18,30 @@ import {
   setTaskStatus,
   updateTask,
 } from '../database';
+import { useForegroundAndMidnightRefresh } from '../hooks/useForegroundAndMidnightRefresh';
+import { radii, spacing, typography } from '../theme';
+import { useAppTheme } from '../theme/ThemeContext';
 import { createRequestGate, shouldApplyLoadResult } from '../utils/asyncLoad';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dates';
 import { annotateTaskLabels } from '../utils/filters';
 import { ALLOWED_TYPES, typeLabel } from '../utils/taskTypes';
-import { colors, radii, spacing, typography } from '../theme';
+
+function DetailRow({ styles, label, value }) {
+  return (
+    <View style={styles.row}>
+      <Text style={styles.label}>{label}</Text>
+      <Text style={styles.value}>{value}</Text>
+    </View>
+  );
+}
 
 export default function TaskDetailsScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const taskId = route.params?.taskId;
   const { ready, refreshKey, refresh } = useData();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [task, setTask] = useState(null);
   const [subjects, setSubjects] = useState([]);
@@ -37,57 +50,67 @@ export default function TaskDetailsScreen() {
   const [editVisible, setEditVisible] = useState(false);
   const [deleteVisible, setDeleteVisible] = useState(false);
   const [busy, setBusy] = useState(false);
+
   const gateRef = useRef(createRequestGate());
-  const mountedRef = useRef(true);
+  const activeRef = useRef(false);
+  const busyRef = useRef(false);
 
   const load = useCallback(async () => {
-    if (!ready) return;
+    if (!ready || !activeRef.current) return;
+
     const requestId = gateRef.current.next();
+    const canApply = () =>
+      shouldApplyLoadResult(
+        requestId,
+        gateRef.current.getLatest(),
+        activeRef.current,
+      );
+
     if (taskId == null) {
-      setError('Missing task id.');
       setTask(null);
+      setError('Missing task id.');
       setLoading(false);
       return;
     }
-    if (!task) setLoading(true);
+
+    setLoading(true);
+
     try {
       const [row, subjectRows] = await Promise.all([
         getTaskById(taskId),
         getAllSubjects(),
       ]);
-      if (
-        !shouldApplyLoadResult(requestId, gateRef.current.getLatest(), mountedRef.current)
-      ) {
-        return;
-      }
-      if (!row) {
-        setTask(null);
-        setError('This task was not found. It may have been deleted.');
-      } else {
+
+      if (!canApply()) return;
+
+      setSubjects(subjectRows);
+
+      if (row) {
         setTask(annotateTaskLabels(row));
         setError(null);
+      } else {
+        setTask(null);
+        setError('This task was not found. It may have been deleted.');
       }
-      setSubjects(subjectRows);
     } catch (err) {
-      if (
-        !shouldApplyLoadResult(requestId, gateRef.current.getLatest(), mountedRef.current)
-      ) {
-        return;
+      if (canApply()) {
+        setError(err?.message || 'Failed to load task details.');
       }
-      setError(err?.message || 'Failed to load task details.');
     } finally {
-      if (shouldApplyLoadResult(requestId, gateRef.current.getLatest(), mountedRef.current)) {
+      if (canApply()) {
         setLoading(false);
       }
     }
-  }, [ready, taskId, task]);
+  }, [ready, taskId]);
 
   useFocusEffect(
     useCallback(() => {
-      mountedRef.current = true;
+      activeRef.current = true;
       load();
+
       return () => {
-        mountedRef.current = false;
+        activeRef.current = false;
+        gateRef.current.next();
       };
     }, [load, refreshKey]),
   );
@@ -100,42 +123,57 @@ export default function TaskDetailsScreen() {
   };
 
   const onToggleStatus = async () => {
-    if (!task || busy || editVisible || deleteVisible) return;
+    if (!task || busyRef.current || editVisible || deleteVisible) return;
+
+    busyRef.current = true;
     setBusy(true);
+
     try {
-      const next = task.status === 'completed' ? 'pending' : 'completed';
-      await setTaskStatus(taskId, next);
-      setError(null);
+      const nextStatus = task.status === 'completed' ? 'pending' : 'completed';
+      await setTaskStatus(taskId, nextStatus);
+      await load();
       refresh();
     } catch (err) {
       setError(err?.message || 'Could not update status.');
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
 
   const onDelete = async () => {
-    if (busy) return;
+    if (!deleteVisible || taskId == null || busyRef.current) return;
+
+    busyRef.current = true;
     setBusy(true);
+
     try {
       await deleteTask(taskId);
       setDeleteVisible(false);
       refresh();
       navigation.goBack();
     } catch (err) {
-      setBusy(false);
       setDeleteVisible(false);
       setError(err?.message || 'Could not delete task.');
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
   };
 
-  if (!ready || (loading && !task)) return <LoadingState message="Loading task…" />;
+  if (!ready || (loading && !task)) {
+    return (
+      <View style={styles.safe}>
+        <LoadingState message="Loading task…" />
+      </View>
+    );
+  }
 
   if (!task) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['bottom']}>
         <View style={styles.missingWrap}>
-          <ErrorState message={error || 'Task not found.'} />
+          <ErrorState message={error || 'Task not found.'} onRetry={load} />
           <PrimaryButton
             title="Go back"
             onPress={() => navigation.goBack()}
@@ -146,47 +184,54 @@ export default function TaskDetailsScreen() {
     );
   }
 
-  const whenLabel =
-    task.type === 'study'
-      ? formatDisplayDate(task.scheduledDate)
-      : formatDisplayDateTime(task.dueAt);
-
+  const isStudy = task.type === 'study';
+  const isCompleted = task.status === 'completed';
+  const statusLabel = isCompleted ? 'Completed' : 'Pending';
+  const taskTypeLabel = typeLabel(task.type);
+  const whenLabel = isStudy
+    ? formatDisplayDate(task.scheduledDate)
+    : formatDisplayDateTime(task.dueAt);
   const actionsLocked = busy || editVisible || deleteVisible;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={[styles.colorBar, { backgroundColor: task.subjectColor }]} />
+        <View
+          style={[
+            styles.colorBar,
+            { backgroundColor: task.subjectColor || colors.primary },
+          ]}
+        />
+
         <Text style={styles.title}>{task.title}</Text>
 
         <View style={styles.chips}>
-          <StatusChip label={typeLabel(task.type)} variant="type" />
+          <StatusChip label={taskTypeLabel} variant="type" />
           <StatusChip
-            label={task.status === 'completed' ? 'Completed' : 'Pending'}
-            variant={task.status === 'completed' ? 'completed' : 'pending'}
+            label={statusLabel}
+            variant={isCompleted ? 'completed' : 'pending'}
           />
-          {task.displayLabel === 'Overdue' ? (
+          {task.displayLabel === 'Overdue' && (
             <StatusChip label="Overdue" variant="overdue" />
-          ) : null}
-          {task.displayLabel === 'Past exam' ? (
+          )}
+          {task.displayLabel === 'Past exam' && (
             <StatusChip label="Past exam" variant="pastExam" />
-          ) : null}
+          )}
         </View>
 
-        <DetailRow label="Subject" value={task.subjectName} />
-        <DetailRow label="Type" value={typeLabel(task.type)} />
+        <DetailRow styles={styles} label="Subject" value={task.subjectName} />
+        <DetailRow styles={styles} label="Type" value={taskTypeLabel} />
         <DetailRow
-          label={task.type === 'study' ? 'Scheduled date' : 'Deadline / exam time'}
+          styles={styles}
+          label={isStudy ? 'Scheduled date' : 'Deadline / exam time'}
           value={whenLabel}
         />
         <DetailRow
+          styles={styles}
           label="Description"
           value={task.description?.trim() ? task.description : 'No description'}
         />
-        <DetailRow
-          label="Status"
-          value={task.status === 'completed' ? 'Completed' : 'Pending'}
-        />
+        <DetailRow styles={styles} label="Status" value={statusLabel} />
 
         <ErrorBanner message={error} onRetry={load} />
 
@@ -197,9 +242,7 @@ export default function TaskDetailsScreen() {
             disabled={actionsLocked}
           />
           <PrimaryButton
-            title={
-              task.status === 'completed' ? 'Mark as pending' : 'Mark as completed'
-            }
+            title={isCompleted ? 'Mark as pending' : 'Mark as completed'}
             variant="secondary"
             onPress={onToggleStatus}
             loading={busy && !deleteVisible}
@@ -236,7 +279,7 @@ export default function TaskDetailsScreen() {
         danger
         loading={busy}
         onCancel={() => {
-          if (!busy) setDeleteVisible(false);
+          if (!busyRef.current) setDeleteVisible(false);
         }}
         onConfirm={onDelete}
       />
@@ -244,63 +287,62 @@ export default function TaskDetailsScreen() {
   );
 }
 
-function DetailRow({ label, value }) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value}>{value}</Text>
-    </View>
-  );
-}
+function createStyles(colors) {
+  const muted =
+    colors.muted ?? colors.textSecondary ?? colors.textMuted ?? colors.text;
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
-  content: {
-    padding: spacing.lg,
-    paddingBottom: spacing.xxxl,
-  },
-  colorBar: {
-    height: 6,
-    borderRadius: radii.pill,
-    marginBottom: spacing.md,
-  },
-  title: {
-    ...typography.screenTitle,
-    color: colors.text,
-  },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    marginBottom: spacing.xl,
-  },
-  row: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  label: {
-    ...typography.small,
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  value: {
-    ...typography.body,
-    color: colors.text,
-  },
-  actions: {
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  missingWrap: {
-    flex: 1,
-  },
-  missingBtn: {
-    marginHorizontal: spacing.xl,
-    marginBottom: spacing.xxxl,
-  },
-});
+  return StyleSheet.create({
+    safe: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    content: {
+      padding: spacing.lg,
+      paddingBottom: spacing.xxxl,
+    },
+    colorBar: {
+      height: 6,
+      borderRadius: radii.pill,
+      marginBottom: spacing.md,
+    },
+    title: {
+      ...typography.screenTitle,
+      color: colors.text,
+    },
+    chips: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginTop: spacing.md,
+      marginBottom: spacing.xl,
+    },
+    row: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      padding: spacing.md,
+      marginBottom: spacing.md,
+    },
+    label: {
+      ...typography.small,
+      color: muted,
+      marginBottom: 4,
+    },
+    value: {
+      ...typography.body,
+      color: colors.text,
+    },
+    actions: {
+      gap: spacing.sm,
+      marginTop: spacing.md,
+    },
+    missingWrap: {
+      flex: 1,
+    },
+    missingBtn: {
+      marginHorizontal: spacing.xl,
+      marginBottom: spacing.xxxl,
+    },
+  });
+}

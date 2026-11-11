@@ -15,7 +15,8 @@ import DateTimePicker, {
 import FormField from './FormField';
 import FormModalScaffold from './FormModalScaffold';
 import PrimaryButton from './PrimaryButton';
-
+import { radii, spacing, typography } from '../theme';
+import { useAppTheme } from '../theme/ThemeContext';
 import {
   getLocalDateString,
   getLocalDateTimeString,
@@ -27,7 +28,6 @@ import {
   typeLabel,
 } from '../utils/taskTypes';
 import { validateTaskForm } from '../utils/validation';
-import { colors, radii, spacing, typography } from '../theme';
 
 function validDate(value) {
   return value instanceof Date && !Number.isNaN(value.getTime());
@@ -36,29 +36,19 @@ function validDate(value) {
 function buildInitial(initialValues, defaultType, defaultDate, allowedTypes) {
   const requested = initialValues?.type || defaultType || 'assignment';
 
-  const type = allowedTypes.includes(requested)
-    ? requested
-    : allowedTypes[0];
-
-  const dueDate =
-    parseLocalDateTime(initialValues?.dueAt) ||
-    parseLocalDateTime(`${defaultDate}T09:00:00`) ||
-    new Date();
-
-  const scheduledDate =
-    parseLocalDateTime(initialValues?.scheduledDate) ||
-    parseLocalDateTime(defaultDate) ||
-    new Date();
-
   return {
     title: initialValues?.title || '',
     description: initialValues?.description || '',
-    subjectId: initialValues?.subjectId
-      ? String(initialValues.subjectId)
-      : '',
-    type,
-    dueDate,
-    scheduledDate,
+    subjectId: initialValues?.subjectId ? String(initialValues.subjectId) : '',
+    type: allowedTypes.includes(requested) ? requested : allowedTypes[0],
+    dueDate:
+      parseLocalDateTime(initialValues?.dueAt) ||
+      parseLocalDateTime(`${defaultDate}T09:00:00`) ||
+      new Date(),
+    scheduledDate:
+      parseLocalDateTime(initialValues?.scheduledDate) ||
+      parseLocalDateTime(defaultDate) ||
+      new Date(),
   };
 }
 
@@ -71,6 +61,19 @@ function formSnapshot(form) {
     dueKey: getLocalDateTimeString(form.dueDate),
     scheduledKey: getLocalDateString(form.scheduledDate),
   };
+}
+
+function dismissAndroidPicker(pickerRef) {
+  if (Platform.OS !== 'android' || !pickerRef.current) return;
+
+  const nativeMode = pickerRef.current;
+  pickerRef.current = null;
+
+  try {
+    Promise.resolve(DateTimePickerAndroid.dismiss(nativeMode)).catch(() => {});
+  } catch {
+    // The native dialog may already have closed.
+  }
 }
 
 export default function TaskFormModal({
@@ -86,6 +89,8 @@ export default function TaskFormModal({
   onClose,
   onCreateSubject,
 }) {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const today = defaultDate || getLocalDateString();
 
   const [form, setForm] = useState(() =>
@@ -108,19 +113,7 @@ export default function TaskFormModal({
 
   const closePickers = () => {
     setPickerMode(null);
-
-    if (Platform.OS === 'android' && androidPickerRef.current) {
-      const nativeMode = androidPickerRef.current;
-      androidPickerRef.current = null;
-
-      try {
-        Promise.resolve(
-          DateTimePickerAndroid.dismiss(nativeMode),
-        ).catch(() => {});
-      } catch {
-        // The native dialog may already have closed.
-      }
-    }
+    dismissAndroidPicker(androidPickerRef);
   };
 
   useEffect(() => {
@@ -129,19 +122,7 @@ export default function TaskFormModal({
     return () => {
       aliveRef.current = false;
       sessionRef.current += 1;
-
-      if (Platform.OS === 'android' && androidPickerRef.current) {
-        const nativeMode = androidPickerRef.current;
-        androidPickerRef.current = null;
-
-        try {
-          Promise.resolve(
-            DateTimePickerAndroid.dismiss(nativeMode),
-          ).catch(() => {});
-        } catch {
-          // No active native dialog to dismiss.
-        }
-      }
+      dismissAndroidPicker(androidPickerRef);
     };
   }, []);
 
@@ -150,28 +131,22 @@ export default function TaskFormModal({
       wasVisibleRef.current = false;
       editingIdRef.current = null;
       sessionRef.current += 1;
-      closePickers();
+      setPickerMode(null);
+      dismissAndroidPicker(androidPickerRef);
       return;
     }
 
-    const editingId =
-      mode === 'edit' ? initialValues?.id ?? null : null;
-
+    const editingId = mode === 'edit' ? initialValues?.id ?? null : null;
     const opening = !wasVisibleRef.current;
-    const differentTask =
-      mode === 'edit' && editingIdRef.current !== editingId;
+    const differentTask = mode === 'edit' && editingIdRef.current !== editingId;
 
-    // Do not reset user input when parent data refreshes.
+    // Keep unsaved input when parent data or the theme updates.
     if (opening || differentTask) {
       sessionRef.current += 1;
-      closePickers();
+      setPickerMode(null);
+      dismissAndroidPicker(androidPickerRef);
 
-      const next = buildInitial(
-        initialValues,
-        defaultType,
-        today,
-        allowedTypes,
-      );
+      const next = buildInitial(initialValues, defaultType, today, allowedTypes);
 
       setForm(next);
       setBaseline(formSnapshot(next));
@@ -182,23 +157,13 @@ export default function TaskFormModal({
 
     wasVisibleRef.current = true;
     editingIdRef.current = editingId;
-  }, [
-    visible,
-    mode,
-    initialValues,
-    defaultType,
-    today,
-    allowedTypes,
-  ]);
+  }, [visible, mode, initialValues, defaultType, today, allowedTypes]);
 
   const isDirty = useMemo(() => {
     if (!baseline) return false;
 
     const current = formSnapshot(form);
-
-    return Object.keys(baseline).some(
-      (key) => current[key] !== baseline[key],
-    );
+    return Object.keys(baseline).some((key) => current[key] !== baseline[key]);
   }, [form, baseline]);
 
   const finishClose = () => {
@@ -211,18 +176,10 @@ export default function TaskFormModal({
     if (savingRef.current) return;
 
     if (isDirty) {
-      Alert.alert(
-        'Discard changes?',
-        'You have unsaved changes.',
-        [
-          { text: 'Keep editing', style: 'cancel' },
-          {
-            text: 'Discard',
-            style: 'destructive',
-            onPress: finishClose,
-          },
-        ],
-      );
+      Alert.alert('Discard changes?', 'You have unsaved changes.', [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Discard', style: 'destructive', onPress: finishClose },
+      ]);
       return;
     }
 
@@ -239,17 +196,10 @@ export default function TaskFormModal({
     };
 
     if (isDirty) {
-      Alert.alert(
-        'Leave this form?',
-        'Your unsaved task changes will be discarded.',
-        [
-          { text: 'Keep editing', style: 'cancel' },
-          {
-            text: 'Continue',
-            onPress: proceed,
-          },
-        ],
-      );
+      Alert.alert('Leave this form?', 'Your unsaved task changes will be discarded.', [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Continue', onPress: proceed },
+      ]);
       return;
     }
 
@@ -257,17 +207,10 @@ export default function TaskFormModal({
   };
 
   const changeType = (type) => {
-    if (
-      savingRef.current ||
-      lockType ||
-      !allowedTypes.includes(type)
-    ) {
-      return;
-    }
+    if (savingRef.current || lockType || !allowedTypes.includes(type)) return;
 
     closePickers();
     setForm((current) => ({ ...current, type }));
-
     setErrors((current) => {
       const next = { ...current };
       delete next.type;
@@ -302,12 +245,7 @@ export default function TaskFormModal({
           selected.getDate(),
         );
       } else if (target === 'dueTime') {
-        next.setHours(
-          selected.getHours(),
-          selected.getMinutes(),
-          0,
-          0,
-        );
+        next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
       } else {
         return current;
       }
@@ -329,10 +267,7 @@ export default function TaskFormModal({
 
     Keyboard.dismiss();
 
-    const value =
-      target === 'scheduled'
-        ? form.scheduledDate
-        : form.dueDate;
+    const value = target === 'scheduled' ? form.scheduledDate : form.dueDate;
 
     if (!validDate(value)) {
       setErrors((current) => ({
@@ -359,7 +294,6 @@ export default function TaskFormModal({
 
     const nativeMode = target === 'dueTime' ? 'time' : 'date';
     const currentSession = sessionRef.current;
-
     androidPickerRef.current = nativeMode;
 
     try {
@@ -379,23 +313,15 @@ export default function TaskFormModal({
 
           androidPickerRef.current = null;
 
-          // Android Back/Cancel must leave the form unchanged.
-          if (event.type !== 'set' || !selected) return;
-
-          applyPickerValue(target, selected);
+          if (event.type === 'set' && selected) {
+            applyPickerValue(target, selected);
+          }
         },
       });
     } catch (error) {
       androidPickerRef.current = null;
-
-      const message =
-        error?.message || 'Could not open the date/time picker.';
-
-      setErrors((current) => ({
-        ...current,
-        picker: message,
-      }));
-
+      const message = error?.message || 'Could not open the date/time picker.';
+      setErrors((current) => ({ ...current, picker: message }));
       Alert.alert('Could not open picker', message);
     }
   };
@@ -408,13 +334,8 @@ export default function TaskFormModal({
   const handleSave = async () => {
     if (savingRef.current) return;
 
-    if (
-      !validDate(form.dueDate) ||
-      !validDate(form.scheduledDate)
-    ) {
-      setErrors({
-        form: 'Please select a valid date and time.',
-      });
+    if (!validDate(form.dueDate) || !validDate(form.scheduledDate)) {
+      setErrors({ form: 'Please select a valid date and time.' });
       return;
     }
 
@@ -422,9 +343,7 @@ export default function TaskFormModal({
       {
         title: form.title,
         description: form.description,
-        subjectId: form.subjectId
-          ? Number(form.subjectId)
-          : null,
+        subjectId: form.subjectId ? Number(form.subjectId) : null,
         type: form.type,
         dueAt: getLocalDateTimeString(form.dueDate),
         scheduledDate: getLocalDateString(form.scheduledDate),
@@ -438,22 +357,17 @@ export default function TaskFormModal({
       return;
     }
 
-    const {
-      errors: nextErrors,
-      isValid,
-      values,
-    } = validateTaskForm(built.payload, { allowedTypes });
+    const { errors: nextErrors, isValid, values } = validateTaskForm(
+      built.payload,
+      { allowedTypes },
+    );
 
     if (
       !subjects.some(
-        (subject) =>
-          Number(subject.id) === Number(built.payload.subjectId),
+        (subject) => Number(subject.id) === Number(built.payload.subjectId),
       )
     ) {
-      setErrors({
-        ...nextErrors,
-        subjectId: 'Please select an existing subject.',
-      });
+      setErrors({ ...nextErrors, subjectId: 'Please select an existing subject.' });
       return;
     }
 
@@ -465,6 +379,10 @@ export default function TaskFormModal({
     closePickers();
 
     const currentSession = sessionRef.current;
+    const isCurrentSession = () =>
+      aliveRef.current &&
+      visibleRef.current &&
+      currentSession === sessionRef.current;
 
     try {
       await onSubmit({
@@ -476,47 +394,34 @@ export default function TaskFormModal({
         status: built.payload.status,
       });
 
-      if (
-        aliveRef.current &&
-        visibleRef.current &&
-        currentSession === sessionRef.current
-      ) {
+      if (isCurrentSession()) {
         finishClose();
       }
     } catch (error) {
-      if (
-        aliveRef.current &&
-        visibleRef.current &&
-        currentSession === sessionRef.current
-      ) {
+      if (isCurrentSession()) {
         setErrors((current) => ({
           ...current,
           form: error?.message || 'Could not save task.',
         }));
       }
     } finally {
-      if (
-        aliveRef.current &&
-        currentSession === sessionRef.current
-      ) {
+      if (isCurrentSession()) {
         savingRef.current = false;
         setSaving(false);
       }
     }
   };
 
-  const heading =
-    mode === 'edit'
-      ? 'Edit Task'
-      : defaultType === 'exam'
-        ? 'Add Exam'
-        : defaultType === 'study'
-          ? 'Add Study Task'
-          : 'Add Assignment';
+  const addHeading = {
+    assignment: 'Add Assignment',
+    exam: 'Add Exam',
+    study: 'Add Study Task',
+  };
+  const heading = mode === 'edit' ? 'Edit Task' : (addHeading[defaultType] ?? 'Add Assignment');
 
-  const timeLabel =
-    `${String(form.dueDate.getHours()).padStart(2, '0')}:` +
-    String(form.dueDate.getMinutes()).padStart(2, '0');
+  const hours = String(form.dueDate.getHours()).padStart(2, '0');
+  const minutes = String(form.dueDate.getMinutes()).padStart(2, '0');
+  const timeLabel = `${hours}:${minutes}`;
 
   return (
     <FormModalScaffold
@@ -535,9 +440,7 @@ export default function TaskFormModal({
       <FormField
         label="Title *"
         value={form.title}
-        onChangeText={(title) =>
-          setForm((current) => ({ ...current, title }))
-        }
+        onChangeText={(title) => setForm((current) => ({ ...current, title }))}
         error={errors.title}
         placeholder="Enter a clear task title"
       />
@@ -549,21 +452,19 @@ export default function TaskFormModal({
           <Text style={styles.emptyText}>
             Add a subject first. Tasks must be linked to an existing subject.
           </Text>
-
-          {onCreateSubject ? (
+          {onCreateSubject && (
             <PrimaryButton
               title="Create a subject"
               onPress={requestCreateSubject}
               disabled={saving}
               style={styles.emptyBtn}
             />
-          ) : null}
+          )}
         </View>
       ) : (
         <View style={styles.chips}>
           {subjects.map((subject) => {
-            const selected =
-              String(subject.id) === String(form.subjectId);
+            const selected = String(subject.id) === form.subjectId;
 
             return (
               <Pressable
@@ -577,23 +478,16 @@ export default function TaskFormModal({
                     subjectId: String(subject.id),
                   }))
                 }
-                style={[
-                  styles.chip,
-                  selected && styles.chipSelected,
-                ]}
+                style={[styles.chip, selected && styles.chipSelected]}
               >
                 <View
                   style={[
                     styles.dot,
-                    { backgroundColor: subject.color },
+                    { backgroundColor: subject.color || colors.primary },
                   ]}
                 />
-
                 <Text
-                  style={[
-                    styles.chipText,
-                    selected && styles.chipTextSelected,
-                  ]}
+                  style={[styles.chipText, selected && styles.chipTextSelected]}
                   numberOfLines={2}
                 >
                   {subject.name}
@@ -604,9 +498,7 @@ export default function TaskFormModal({
         </View>
       )}
 
-      {errors.subjectId ? (
-        <Text style={styles.error}>{errors.subjectId}</Text>
-      ) : null}
+      {errors.subjectId ? <Text style={styles.error}>{errors.subjectId}</Text> : null}
 
       <Text style={styles.label}>Type *</Text>
 
@@ -616,8 +508,7 @@ export default function TaskFormModal({
         </Text>
       ) : mode === 'edit' ? (
         <Text style={styles.lockHint}>
-          Changing type moves this task to the matching screen and
-          clears the unused date field.
+          Changing type moves this task to the matching screen and clears the unused date field.
         </Text>
       ) : null}
 
@@ -639,12 +530,7 @@ export default function TaskFormModal({
                 disabled && styles.typeDisabled,
               ]}
             >
-              <Text
-                style={[
-                  styles.typeText,
-                  selected && styles.typeTextSelected,
-                ]}
-              >
+              <Text style={[styles.typeText, selected && styles.typeTextSelected]}>
                 {typeLabel(type)}
               </Text>
             </Pressable>
@@ -652,14 +538,11 @@ export default function TaskFormModal({
         })}
       </View>
 
-      {errors.type ? (
-        <Text style={styles.error}>{errors.type}</Text>
-      ) : null}
+      {errors.type ? <Text style={styles.error}>{errors.type}</Text> : null}
 
       {form.type === 'study' ? (
         <View style={styles.block}>
           <Text style={styles.label}>Scheduled date *</Text>
-
           <Pressable
             style={styles.dateBtn}
             onPress={() => openPicker('scheduled')}
@@ -674,9 +557,7 @@ export default function TaskFormModal({
           </Pressable>
 
           {errors.scheduledDate ? (
-            <Text style={styles.error}>
-              {errors.scheduledDate}
-            </Text>
+            <Text style={styles.error}>{errors.scheduledDate}</Text>
           ) : null}
         </View>
       ) : (
@@ -694,9 +575,7 @@ export default function TaskFormModal({
               accessibilityLabel="Choose date"
             >
               <Text style={styles.dateCaption}>DATE</Text>
-              <Text style={styles.dateText}>
-                {getLocalDateString(form.dueDate)}
-              </Text>
+              <Text style={styles.dateText}>{getLocalDateString(form.dueDate)}</Text>
             </Pressable>
 
             <Pressable
@@ -711,33 +590,22 @@ export default function TaskFormModal({
             </Pressable>
           </View>
 
-          <Text style={styles.dateHint}>
-            Tap the date or time to change it.
-          </Text>
-
-          {errors.dueAt ? (
-            <Text style={styles.error}>{errors.dueAt}</Text>
-          ) : null}
+          <Text style={styles.dateHint}>Tap the date or time to change it.</Text>
+          {errors.dueAt ? <Text style={styles.error}>{errors.dueAt}</Text> : null}
         </View>
       )}
 
-      {errors.picker ? (
-        <Text style={styles.error}>{errors.picker}</Text>
-      ) : null}
+      {errors.picker ? <Text style={styles.error}>{errors.picker}</Text> : null}
 
       {Platform.OS === 'ios' && pickerMode ? (
         <View style={styles.iosPicker}>
           <DateTimePicker
-            value={
-              pickerMode === 'scheduled'
-                ? form.scheduledDate
-                : form.dueDate
-            }
+            value={pickerMode === 'scheduled' ? form.scheduledDate : form.dueDate}
             mode={pickerMode === 'dueTime' ? 'time' : 'date'}
             display="spinner"
+            textColor={colors.text}
             onChange={onIOSPickerChange}
           />
-
           <PrimaryButton
             title="Done"
             variant="secondary"
@@ -750,170 +618,173 @@ export default function TaskFormModal({
         label="Description (optional)"
         value={form.description}
         onChangeText={(description) =>
-          setForm((current) => ({
-            ...current,
-            description,
-          }))
+          setForm((current) => ({ ...current, description }))
         }
         placeholder="Notes, requirements, room…"
         multiline
       />
 
-      {errors.form ? (
-        <Text style={styles.error}>{errors.form}</Text>
-      ) : null}
+      {errors.form ? <Text style={styles.error}>{errors.form}</Text> : null}
     </FormModalScaffold>
   );
 }
 
-const styles = StyleSheet.create({
-  label: {
-    ...typography.bodyBold,
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    minHeight: 44,
-    maxWidth: '100%',
-    flexShrink: 1,
-  },
-  chipSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: spacing.sm,
-  },
-  chipText: {
-    ...typography.caption,
-    color: colors.text,
-    flexShrink: 1,
-    maxWidth: 240,
-  },
-  chipTextSelected: {
-    color: colors.primaryDark,
-    fontWeight: '600',
-  },
-  emptySubjects: {
-    backgroundColor: colors.primarySoft,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  emptyText: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
-  },
-  emptyBtn: {
-    alignSelf: 'flex-start',
-  },
-  lockHint: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
-  },
-  typeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  typeChip: {
-    flexGrow: 1,
-    minWidth: 96,
-    minHeight: 44,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  typeSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  typeDisabled: {
-    opacity: 0.55,
-  },
-  typeText: {
-    ...typography.caption,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  typeTextSelected: {
-    color: colors.white,
-  },
-  block: {
-    marginBottom: spacing.lg,
-  },
-  dateRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  dateColumn: {
-    flexGrow: 1,
-    flexBasis: 130,
-  },
-  dateBtn: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radii.md,
-    minHeight: 70,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  dateCaption: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1,
-    color: colors.textSecondary,
-    marginBottom: 6,
-  },
-  dateText: {
-    ...typography.body,
-    color: colors.primaryDark,
-    fontWeight: '600',
-  },
-  dateHint: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-  },
-  iosPicker: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    padding: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  error: {
-    ...typography.caption,
-    color: colors.danger,
-    marginTop: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-});
+function createStyles(colors) {
+  const muted =
+    colors.muted ?? colors.textSecondary ?? colors.textMuted ?? colors.text;
+  const accentSurface = colors.lavender ?? colors.primarySoft ?? colors.surface;
+  const onPrimary = colors.onPrimary ?? colors.white ?? '#FFFFFF';
+  const danger = colors.danger ?? colors.error ?? colors.text;
+
+  return StyleSheet.create({
+    label: {
+      ...typography.bodyBold,
+      color: colors.text,
+      marginBottom: spacing.sm,
+    },
+    chips: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginBottom: spacing.md,
+    },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radii.pill,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      minHeight: 44,
+      maxWidth: '100%',
+      flexShrink: 1,
+    },
+    chipSelected: {
+      borderColor: colors.primary,
+      backgroundColor: accentSurface,
+    },
+    dot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      marginRight: spacing.sm,
+    },
+    chipText: {
+      ...typography.caption,
+      color: colors.text,
+      flexShrink: 1,
+      maxWidth: 240,
+    },
+    chipTextSelected: {
+      fontWeight: '700',
+    },
+    emptySubjects: {
+      backgroundColor: accentSurface,
+      borderRadius: radii.md,
+      padding: spacing.md,
+      marginBottom: spacing.md,
+    },
+    emptyText: {
+      ...typography.caption,
+      color: muted,
+      marginBottom: spacing.sm,
+    },
+    emptyBtn: {
+      alignSelf: 'flex-start',
+    },
+    lockHint: {
+      ...typography.caption,
+      color: muted,
+      marginBottom: spacing.sm,
+    },
+    typeRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    typeChip: {
+      flexGrow: 1,
+      minWidth: 96,
+      minHeight: 44,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surface,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.sm,
+    },
+    typeSelected: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    typeDisabled: {
+      opacity: 0.55,
+    },
+    typeText: {
+      ...typography.caption,
+      color: colors.text,
+      fontWeight: '600',
+    },
+    typeTextSelected: {
+      color: onPrimary,
+    },
+    block: {
+      marginBottom: spacing.lg,
+    },
+    dateRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+    },
+    dateColumn: {
+      flexGrow: 1,
+      flexBasis: 130,
+    },
+    dateBtn: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radii.md,
+      minHeight: 70,
+      justifyContent: 'center',
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    dateCaption: {
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 1,
+      color: muted,
+      marginBottom: 6,
+    },
+    dateText: {
+      ...typography.body,
+      color: colors.text,
+      fontWeight: '600',
+    },
+    dateHint: {
+      ...typography.caption,
+      color: muted,
+      marginTop: spacing.sm,
+    },
+    iosPicker: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      padding: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    error: {
+      ...typography.caption,
+      color: danger,
+      marginTop: spacing.xs,
+      marginBottom: spacing.sm,
+    },
+  });
+}

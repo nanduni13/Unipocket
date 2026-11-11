@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { studentUi as ui } from '../theme/studentUi';
+import { useAppTheme } from '../theme/ThemeContext';
+import { studentUi } from '../theme/studentUi';
 
 export default function DashboardBento({
   focusTask,
@@ -11,6 +12,8 @@ export default function DashboardBento({
   onOpenTask,
   onOpenPlanner,
 }) {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const percent = Math.max(0, Math.min(100, Number(progress) || 0));
 
   return (
@@ -37,7 +40,7 @@ export default function DashboardBento({
         </View>
 
         <View style={styles.illustration}>
-          <Ionicons name="book-outline" size={34} color={ui.primary} />
+          <Ionicons name="book-outline" size={34} color={colors.primary} />
         </View>
       </Pressable>
 
@@ -46,19 +49,23 @@ export default function DashboardBento({
           icon="clipboard-outline"
           label="Pending assignments"
           value={pendingAssignments}
-          backgroundColor={ui.mint}
+          accent={colors.primary}
+          styles={styles}
         />
         <Metric
           icon="calendar-outline"
           label="Upcoming exams"
           value={upcomingExams}
-          backgroundColor={ui.peach}
+          accent={colors.warning ?? colors.primary}
+          styles={styles}
         />
       </View>
 
       <View style={styles.progressCard}>
         <View style={styles.progressHeading}>
-          <Text style={styles.label}>Today’s study progress</Text>
+          <Text style={[styles.label, styles.progressLabel]}>
+            Today’s study progress
+          </Text>
           <Text style={styles.percent}>{percent}%</Text>
         </View>
 
@@ -76,85 +83,125 @@ export default function DashboardBento({
   );
 }
 
-function Metric({ icon, label, value, backgroundColor }) {
+function Metric({ icon, label, value, accent, styles }) {
   return (
-    <View style={[styles.metric, { backgroundColor }]}>
-      <Ionicons name={icon} size={21} color={ui.text} />
+    <View style={styles.metric}>
+      <Ionicons name={icon} size={21} color={accent} />
       <Text style={styles.number}>{value ?? 0}</Text>
       <Text style={styles.label}>{label}</Text>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  grid: { gap: 12, marginBottom: 16 },
-  focus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    padding: 20,
-    borderRadius: ui.radius,
-    backgroundColor: ui.primary,
-    elevation: 2,
-  },
-  pressed: { opacity: 0.85 },
-  focusCopy: { flex: 1, minWidth: 0 },
-  focusLabel: {
-    color: '#F0E5FF',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  focusTitle: {
-    color: '#FFFFFF',
-    fontSize: 21,
-    fontWeight: '800',
-    marginTop: 7,
-  },
-  focusHint: {
-    color: '#F0E5FF',
-    fontSize: 13,
-    marginTop: 10,
-  },
-  illustration: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    backgroundColor: ui.yellow,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  row: { flexDirection: 'row', gap: 12 },
-  metric: { flex: 1, padding: 14, borderRadius: ui.radius },
-  number: {
-    color: ui.text,
-    fontSize: 26,
-    fontWeight: '800',
-    marginVertical: 4,
-  },
-  label: { color: ui.text, fontSize: 13, fontWeight: '600' },
-  progressCard: {
-    padding: 16,
-    borderRadius: ui.radius,
-    backgroundColor: ui.lavender,
-  },
-  progressHeading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 10,
-  },
-  percent: { color: ui.primary, fontSize: 17, fontWeight: '800' },
-  track: {
-    height: 9,
-    borderRadius: 8,
-    backgroundColor: '#D8C8F3',
-    overflow: 'hidden',
-  },
-  fill: {
-    height: '100%',
-    borderRadius: 8,
-    backgroundColor: ui.primary,
-  },
-});
+function createStyles(colors) {
+  const radius = studentUi.radius;
+  const muted =
+    colors.muted ?? colors.textSecondary ?? colors.textMuted ?? colors.text;
+  const accentSurface = colors.lavender ?? colors.surface;
+
+  return StyleSheet.create({
+    grid: {
+      gap: 12,
+      marginBottom: 16,
+    },
+    focus: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+      padding: 20,
+      borderRadius: radius,
+      backgroundColor: accentSurface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    pressed: {
+      opacity: 0.85,
+    },
+    focusCopy: {
+      flex: 1,
+      minWidth: 0,
+    },
+    focusLabel: {
+      color: colors.primary,
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 1,
+    },
+    focusTitle: {
+      color: colors.text,
+      fontSize: 21,
+      fontWeight: '800',
+      marginTop: 7,
+    },
+    focusHint: {
+      color: muted,
+      fontSize: 13,
+      marginTop: 10,
+    },
+    illustration: {
+      width: 64,
+      height: 64,
+      borderRadius: 18,
+      backgroundColor: colors.background,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    row: {
+      flexDirection: 'row',
+      gap: 12,
+    },
+    metric: {
+      flex: 1,
+      minWidth: 0,
+      padding: 14,
+      borderRadius: radius,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    number: {
+      color: colors.text,
+      fontSize: 26,
+      fontWeight: '800',
+      marginVertical: 4,
+    },
+    label: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    progressCard: {
+      padding: 16,
+      borderRadius: radius,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    progressHeading: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+      marginBottom: 10,
+    },
+    progressLabel: {
+      flex: 1,
+    },
+    percent: {
+      color: colors.primary,
+      fontSize: 17,
+      fontWeight: '800',
+    },
+    track: {
+      height: 9,
+      borderRadius: 8,
+      backgroundColor: colors.lavender ?? colors.border ?? colors.background,
+      overflow: 'hidden',
+    },
+    fill: {
+      height: '100%',
+      borderRadius: 8,
+      backgroundColor: colors.primary,
+    },
+  });
+}

@@ -18,18 +18,15 @@ import LoadingState from '../components/LoadingState';
 import PrimaryButton from '../components/PrimaryButton';
 import TaskCard from '../components/TaskCard';
 import TaskFormModal from '../components/TaskFormModal';
-
 import { useData } from '../context/DataContext';
-import { useForegroundAndMidnightRefresh } from '../hooks/useForegroundAndMidnightRefresh';
 import {
   createTask,
   getAllSubjects,
   getAssignmentsAndExams,
 } from '../database';
-import {
-  createRequestGate,
-  shouldApplyLoadResult,
-} from '../utils/asyncLoad';
+import { useForegroundAndMidnightRefresh } from '../hooks/useForegroundAndMidnightRefresh';
+import { useAppTheme } from '../theme/ThemeContext';
+import { createRequestGate, shouldApplyLoadResult } from '../utils/asyncLoad';
 import { filterAssignmentsAndExams } from '../utils/filters';
 import { ALLOWED_TYPES } from '../utils/taskTypes';
 
@@ -45,24 +42,12 @@ const TYPE_OPTIONS = [
   { key: 'exam', label: 'Exam' },
 ];
 
-const theme = {
-  background: '#F7F7FC',
-  surface: '#FFFFFF',
-  purple: '#6D4AFF',
-  purpleDark: '#392278',
-  soft: '#EEE9FF',
-  text: '#25223B',
-  muted: '#686278',
-  border: '#E8E5F1',
-};
-
-function FilterChip({ label, selected, onPress }) {
+function FilterChip({ styles, label, selected, onPress }) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      accessibilityLabel={label}
       style={({ pressed }) => [
         styles.chip,
         selected && styles.chipSelected,
@@ -79,16 +64,13 @@ function FilterChip({ label, selected, onPress }) {
   );
 }
 
-function ActiveFilter({ label, onRemove }) {
+function ActiveFilter({ styles, label, onRemove }) {
   return (
     <Pressable
       onPress={onRemove}
       accessibilityRole="button"
       accessibilityLabel={`Remove filter: ${label}`}
-      style={({ pressed }) => [
-        styles.activeChip,
-        pressed && styles.pressed,
-      ]}
+      style={({ pressed }) => [styles.activeChip, pressed && styles.pressed]}
     >
       <Text style={styles.activeText}>{label}</Text>
       <Text style={styles.activeClose}>×</Text>
@@ -97,6 +79,8 @@ function ActiveFilter({ label, onRemove }) {
 }
 
 export default function AssignmentsScreen() {
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
   const navigation = useNavigation();
   const { ready, refreshKey, refresh } = useData();
 
@@ -123,7 +107,6 @@ export default function AssignmentsScreen() {
     if (!ready || !activeRef.current) return;
 
     const requestId = gateRef.current.next();
-
     const canApply = () =>
       shouldApplyLoadResult(
         requestId,
@@ -144,19 +127,16 @@ export default function AssignmentsScreen() {
       setHasLoaded(true);
       setError(null);
 
-      // A deleted subject must not leave an invisible stale filter.
       setSubjectId((current) => {
         if (current === 'all') return current;
-
-        return subjectRows.some(
-          (subject) => Number(subject.id) === Number(current),
-        )
+        return subjectRows.some((subject) => Number(subject.id) === Number(current))
           ? current
           : 'all';
       });
     } catch (err) {
-      if (!canApply()) return;
-      setError(err?.message || 'Could not load assignments.');
+      if (canApply()) {
+        setError(err?.message || 'Could not load assignments.');
+      }
     } finally {
       if (canApply()) {
         setLoading(false);
@@ -189,21 +169,17 @@ export default function AssignmentsScreen() {
   const selectedSubject = subjects.find(
     (subject) => Number(subject.id) === Number(subjectId),
   );
+  const selectedStatus = STATUS_OPTIONS.find((option) => option.key === status);
+  const selectedType = TYPE_OPTIONS.find((option) => option.key === type);
 
   const filterCount =
     Number(subjectId !== 'all') +
     Number(status !== 'all') +
     Number(type !== 'all');
-
   const hasCriteria = Boolean(search.trim()) || filterCount > 0;
 
-  const pendingCount = tasks.filter(
-    (task) => task.status === 'pending',
-  ).length;
-
-  const completedCount = tasks.filter(
-    (task) => task.status === 'completed',
-  ).length;
+  const pendingCount = tasks.filter((task) => task.status === 'pending').length;
+  const completedCount = tasks.filter((task) => task.status === 'completed').length;
 
   const clearFilters = () => {
     setSearch('');
@@ -249,21 +225,17 @@ export default function AssignmentsScreen() {
             <View style={styles.hero}>
               <Text style={styles.eyebrow}>STAY ONE STEP AHEAD</Text>
               <Text style={styles.title}>Assignments & Exams</Text>
-              <Text style={styles.subtitle}>
-                Keep every deadline in one place.
-              </Text>
+              <Text style={styles.subtitle}>Keep every deadline in one place.</Text>
 
               <View style={styles.heroStats}>
                 <View style={styles.heroStat}>
                   <Text style={styles.heroNumber}>{pendingCount}</Text>
                   <Text style={styles.heroStatLabel}>Pending</Text>
                 </View>
-
                 <View style={styles.heroStat}>
                   <Text style={styles.heroNumber}>{completedCount}</Text>
                   <Text style={styles.heroStatLabel}>Completed</Text>
                 </View>
-
                 <View style={styles.heroStat}>
                   <Text style={styles.heroNumber}>{tasks.length}</Text>
                   <Text style={styles.heroStatLabel}>Total</Text>
@@ -293,14 +265,13 @@ export default function AssignmentsScreen() {
                   value={search}
                   onChangeText={setSearch}
                   placeholder="Search by title..."
-                  placeholderTextColor={theme.muted}
+                  placeholderTextColor={colors.muted ?? colors.textSecondary}
                   style={styles.searchInput}
                   accessibilityLabel="Search assignments and exams"
                   autoCorrect={false}
                   returnKeyType="search"
                 />
-
-                {search.length > 0 ? (
+                {search.length > 0 && (
                   <Pressable
                     onPress={() => setSearch('')}
                     accessibilityRole="button"
@@ -309,7 +280,7 @@ export default function AssignmentsScreen() {
                   >
                     <Text style={styles.clearSymbol}>×</Text>
                   </Pressable>
-                ) : null}
+                )}
               </View>
 
               <Pressable
@@ -318,15 +289,13 @@ export default function AssignmentsScreen() {
                 accessibilityState={{ expanded: filtersVisible }}
                 style={[
                   styles.filterButton,
-                  (filtersVisible || filterCount > 0) &&
-                    styles.filterButtonSelected,
+                  (filtersVisible || filterCount > 0) && styles.filterButtonSelected,
                 ]}
               >
                 <Text
                   style={[
                     styles.filterButtonText,
-                    (filtersVisible || filterCount > 0) &&
-                      styles.filterButtonTextSelected,
+                    (filtersVisible || filterCount > 0) && styles.filterButtonTextSelected,
                   ]}
                 >
                   {filtersVisible ? 'Hide' : 'Filters'}
@@ -335,10 +304,9 @@ export default function AssignmentsScreen() {
               </Pressable>
             </View>
 
-            {filtersVisible ? (
+            {filtersVisible && (
               <View style={styles.filterPanel}>
                 <Text style={styles.filterLabel}>Subject</Text>
-
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -346,18 +314,17 @@ export default function AssignmentsScreen() {
                   contentContainerStyle={styles.horizontalChips}
                 >
                   <FilterChip
+                    styles={styles}
                     label="All subjects"
                     selected={subjectId === 'all'}
                     onPress={() => setSubjectId('all')}
                   />
-
                   {subjects.map((subject) => (
                     <FilterChip
                       key={subject.id}
+                      styles={styles}
                       label={subject.name}
-                      selected={
-                        Number(subjectId) === Number(subject.id)
-                      }
+                      selected={Number(subjectId) === Number(subject.id)}
                       onPress={() => setSubjectId(subject.id)}
                     />
                   ))}
@@ -368,6 +335,7 @@ export default function AssignmentsScreen() {
                   {STATUS_OPTIONS.map((option) => (
                     <FilterChip
                       key={option.key}
+                      styles={styles}
                       label={option.label}
                       selected={status === option.key}
                       onPress={() => setStatus(option.key)}
@@ -380,6 +348,7 @@ export default function AssignmentsScreen() {
                   {TYPE_OPTIONS.map((option) => (
                     <FilterChip
                       key={option.key}
+                      styles={styles}
                       label={option.label}
                       selected={type === option.key}
                       onPress={() => setType(option.key)}
@@ -387,39 +356,40 @@ export default function AssignmentsScreen() {
                   ))}
                 </View>
               </View>
-            ) : null}
+            )}
 
-            {hasCriteria ? (
+            {hasCriteria && (
               <View style={styles.activeFilters}>
-                {search.trim() ? (
+                {Boolean(search.trim()) && (
                   <ActiveFilter
+                    styles={styles}
                     label={`Search: ${search.trim()}`}
                     onRemove={() => setSearch('')}
                   />
-                ) : null}
-
-                {selectedSubject ? (
+                )}
+                {selectedSubject && (
                   <ActiveFilter
+                    styles={styles}
                     label={selectedSubject.name}
                     onRemove={() => setSubjectId('all')}
                   />
-                ) : null}
-
-                {status !== 'all' ? (
+                )}
+                {status !== 'all' && (
                   <ActiveFilter
-                    label={status === 'pending' ? 'Pending' : 'Completed'}
+                    styles={styles}
+                    label={selectedStatus.label}
                     onRemove={() => setStatus('all')}
                   />
-                ) : null}
-
-                {type !== 'all' ? (
+                )}
+                {type !== 'all' && (
                   <ActiveFilter
-                    label={type === 'exam' ? 'Exam' : 'Assignment'}
+                    styles={styles}
+                    label={selectedType.label}
                     onRemove={() => setType('all')}
                   />
-                ) : null}
+                )}
               </View>
-            ) : null}
+            )}
 
             <View style={styles.resultsRow}>
               <View style={styles.resultsText}>
@@ -430,8 +400,7 @@ export default function AssignmentsScreen() {
                   {filtered.length} of {tasks.length} items
                 </Text>
               </View>
-
-              {hasCriteria ? (
+              {hasCriteria && (
                 <Pressable
                   onPress={clearFilters}
                   accessibilityRole="button"
@@ -440,16 +409,14 @@ export default function AssignmentsScreen() {
                 >
                   <Text style={styles.clearAllText}>Clear all</Text>
                 </Pressable>
-              ) : null}
+              )}
             </View>
           </View>
         }
         renderItem={({ item }) => (
           <TaskCard
             task={item}
-            onPress={() =>
-              navigation.navigate('TaskDetails', { taskId: item.id })
-            }
+            onPress={() => navigation.navigate('TaskDetails', { taskId: item.id })}
           />
         )}
         ListEmptyComponent={
@@ -463,14 +430,13 @@ export default function AssignmentsScreen() {
                   : 'Add your first assignment or exam to get started.'
               }
             />
-
-            {hasCriteria ? (
+            {hasCriteria && (
               <PrimaryButton
                 title="Clear search and filters"
                 variant="secondary"
                 onPress={clearFilters}
               />
-            ) : null}
+            )}
           </View>
         }
       />
@@ -492,244 +458,251 @@ export default function AssignmentsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
-  list: {
-    paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 36,
-  },
-  hero: {
-    padding: 22,
-    borderRadius: 24,
-    backgroundColor: theme.purpleDark,
-    marginBottom: 16,
-  },
-  eyebrow: {
-    color: '#DDD3FF',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.3,
-    marginBottom: 10,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 26,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    color: '#E6DFFF',
-    fontSize: 13,
-    lineHeight: 20,
-    marginTop: 7,
-  },
-  heroStats: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 22,
-  },
-  heroStat: {
-    flexGrow: 1,
-    flexBasis: 65,
-    backgroundColor: '#50378F',
-    padding: 12,
-    borderRadius: 14,
-  },
-  heroNumber: {
-    color: '#FFFFFF',
-    fontSize: 23,
-    fontWeight: '800',
-  },
-  heroStatLabel: {
-    color: '#EEE8FF',
-    fontSize: 11,
-    marginTop: 4,
-  },
-  addRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 18,
-  },
-  addButton: {
-    flexGrow: 1,
-    flexBasis: 135,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 12,
-  },
-  searchBox: {
-    flexGrow: 1,
-    flexBasis: 190,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.surface,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 15,
-    minHeight: 50,
-  },
-  searchInput: {
-    flex: 1,
-    minWidth: 0,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: theme.text,
-  },
-  clearSearch: {
-    minWidth: 44,
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  clearSymbol: {
-    color: theme.muted,
-    fontSize: 25,
-  },
-  filterButton: {
-    paddingHorizontal: 15,
-    paddingVertical: 13,
-    minHeight: 50,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: theme.border,
-    backgroundColor: theme.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  filterButtonSelected: {
-    backgroundColor: theme.purple,
-    borderColor: theme.purple,
-  },
-  filterButtonText: {
-    color: theme.text,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  filterButtonTextSelected: {
-    color: '#FFFFFF',
-  },
-  filterPanel: {
-    backgroundColor: theme.surface,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 18,
-    padding: 15,
-    marginBottom: 12,
-  },
-  filterLabel: {
-    color: theme.muted,
-    fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 9,
-  },
-  horizontalChips: {
-    gap: 8,
-    paddingBottom: 15,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
-  },
-  chip: {
-    minHeight: 44,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 13,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: theme.background,
-    maxWidth: 240,
-  },
-  chipSelected: {
-    backgroundColor: theme.soft,
-    borderColor: theme.purple,
-  },
-  chipText: {
-    color: theme.muted,
-    fontSize: 12,
-  },
-  chipTextSelected: {
-    color: theme.purpleDark,
-    fontWeight: '700',
-  },
-  activeFilters: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 5,
-  },
-  activeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    maxWidth: '100%',
-    minHeight: 44,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 12,
-    backgroundColor: theme.soft,
-  },
-  activeText: {
-    flexShrink: 1,
-    color: theme.purpleDark,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  activeClose: {
-    color: theme.purpleDark,
-    fontSize: 20,
-  },
-  resultsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 14,
-    marginBottom: 16,
-  },
-  resultsText: {
-    flex: 1,
-  },
-  resultsTitle: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  resultsSubtitle: {
-    color: theme.muted,
-    fontSize: 12,
-    marginTop: 4,
-  },
-  clearAllButton: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  clearAllText: {
-    color: theme.purple,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  emptyCard: {
-    backgroundColor: theme.surface,
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  pressed: {
-    opacity: 0.75,
-  },
-});
+function createStyles(colors) {
+  const muted = colors.muted ?? colors.textSecondary ?? colors.text;
+  const accentSurface = colors.lavender ?? colors.surface;
+  const onPrimary = colors.onPrimary ?? '#FFFFFF';
+
+  return StyleSheet.create({
+    safe: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    list: {
+      paddingHorizontal: 18,
+      paddingTop: 14,
+      paddingBottom: 36,
+    },
+    hero: {
+      padding: 22,
+      borderRadius: 24,
+      backgroundColor: accentSurface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 16,
+    },
+    eyebrow: {
+      color: colors.primary,
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 1.3,
+      marginBottom: 10,
+    },
+    title: {
+      color: colors.text,
+      fontSize: 26,
+      fontWeight: '800',
+      letterSpacing: -0.5,
+    },
+    subtitle: {
+      color: muted,
+      fontSize: 13,
+      lineHeight: 20,
+      marginTop: 7,
+    },
+    heroStats: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 12,
+      marginTop: 22,
+    },
+    heroStat: {
+      flexGrow: 1,
+      flexBasis: 75,
+      backgroundColor: colors.surface,
+      padding: 12,
+      borderRadius: 14,
+    },
+    heroNumber: {
+      color: colors.text,
+      fontSize: 23,
+      fontWeight: '800',
+    },
+    heroStatLabel: {
+      color: muted,
+      fontSize: 11,
+      marginTop: 4,
+    },
+    addRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 10,
+      marginBottom: 18,
+    },
+    addButton: {
+      flexGrow: 1,
+      flexBasis: 135,
+    },
+    searchRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 10,
+      marginBottom: 12,
+    },
+    searchBox: {
+      flexGrow: 1,
+      flexBasis: 190,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 15,
+      minHeight: 50,
+    },
+    searchInput: {
+      flex: 1,
+      minWidth: 0,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 14,
+      color: colors.text,
+    },
+    clearSearch: {
+      minWidth: 44,
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    clearSymbol: {
+      color: muted,
+      fontSize: 25,
+    },
+    filterButton: {
+      paddingHorizontal: 15,
+      minHeight: 50,
+      borderRadius: 15,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    filterButtonSelected: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    filterButtonText: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    filterButtonTextSelected: {
+      color: onPrimary,
+    },
+    filterPanel: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 18,
+      padding: 15,
+      marginBottom: 12,
+    },
+    filterLabel: {
+      color: muted,
+      fontSize: 11,
+      fontWeight: '700',
+      marginBottom: 9,
+    },
+    horizontalChips: {
+      gap: 8,
+      paddingBottom: 15,
+    },
+    chipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 12,
+    },
+    chip: {
+      minHeight: 44,
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 13,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      backgroundColor: colors.background,
+      maxWidth: 240,
+    },
+    chipSelected: {
+      backgroundColor: accentSurface,
+      borderColor: colors.primary,
+    },
+    chipText: {
+      color: muted,
+      fontSize: 12,
+    },
+    chipTextSelected: {
+      color: colors.text,
+      fontWeight: '700',
+    },
+    activeFilters: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 5,
+    },
+    activeChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 9,
+      maxWidth: '100%',
+      minHeight: 44,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+      borderRadius: 12,
+      backgroundColor: accentSurface,
+    },
+    activeText: {
+      flexShrink: 1,
+      color: colors.text,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    activeClose: {
+      color: colors.text,
+      fontSize: 20,
+    },
+    resultsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginTop: 14,
+      marginBottom: 16,
+    },
+    resultsText: {
+      flex: 1,
+    },
+    resultsTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: '700',
+    },
+    resultsSubtitle: {
+      color: muted,
+      fontSize: 12,
+      marginTop: 4,
+    },
+    clearAllButton: {
+      minHeight: 44,
+      justifyContent: 'center',
+      paddingHorizontal: 10,
+    },
+    clearAllText: {
+      color: colors.primary,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    emptyCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    pressed: {
+      opacity: 0.75,
+    },
+  });
+}

@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+
 import FormField from './FormField';
 import FormModalScaffold from './FormModalScaffold';
 import PrimaryButton from './PrimaryButton';
-import { colors, radii, spacing, subjectColorOptions, typography } from '../theme';
+import { spacing, subjectColorOptions, typography } from '../theme';
+import { useAppTheme } from '../theme/ThemeContext';
 import { validateSubjectForm } from '../utils/validation';
 
 const emptyForm = {
@@ -20,6 +22,9 @@ export default function SubjectFormModal({
   onSubmit,
   onClose,
 }) {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
@@ -27,27 +32,27 @@ export default function SubjectFormModal({
 
   useEffect(() => {
     if (!visible) return;
+
     const next = {
       name: initialValues?.name || '',
       code: initialValues?.code || '',
       color: initialValues?.color || subjectColorOptions[0],
     };
+
     setForm(next);
     setBaseline(next);
     setErrors({});
     setSaving(false);
   }, [visible, initialValues]);
 
-  const isDirty = useMemo(
-    () =>
-      form.name !== baseline.name ||
-      form.code !== baseline.code ||
-      form.color !== baseline.color,
-    [form, baseline],
-  );
+  const isDirty =
+    form.name !== baseline.name ||
+    form.code !== baseline.code ||
+    form.color !== baseline.color;
 
   const requestClose = () => {
     if (saving) return;
+
     if (isDirty) {
       Alert.alert('Discard changes?', 'You have unsaved changes.', [
         { text: 'Keep editing', style: 'cancel' },
@@ -55,19 +60,24 @@ export default function SubjectFormModal({
       ]);
       return;
     }
+
     onClose();
   };
 
   const handleSave = async () => {
+    if (saving) return;
+
     const { errors: nextErrors, isValid, values } = validateSubjectForm(
       form,
       existingSubjects,
       mode === 'edit' ? initialValues?.id : null,
     );
+
     setErrors(nextErrors);
-    if (!isValid || saving) return;
+    if (!isValid) return;
 
     setSaving(true);
+
     try {
       await onSubmit({
         name: values.name,
@@ -76,8 +86,8 @@ export default function SubjectFormModal({
       });
       onClose();
     } catch (error) {
-      setErrors((prev) => ({
-        ...prev,
+      setErrors((previous) => ({
+        ...previous,
         form: error?.message || 'Could not save subject.',
       }));
     } finally {
@@ -102,64 +112,84 @@ export default function SubjectFormModal({
       <FormField
         label="Subject name *"
         value={form.name}
-        onChangeText={(name) => setForm((f) => ({ ...f, name }))}
+        onChangeText={(name) => setForm((current) => ({ ...current, name }))}
         error={errors.name}
         placeholder="e.g. Mobile Application Development"
       />
+
       <FormField
         label="Subject code (optional)"
         value={form.code}
-        onChangeText={(code) => setForm((f) => ({ ...f, code }))}
+        onChangeText={(code) => setForm((current) => ({ ...current, code }))}
         placeholder="Leave empty if none"
       />
 
       <Text style={styles.label}>Colour *</Text>
-      <View style={styles.colors}>
-        {subjectColorOptions.map((color) => (
-          <Pressable
-            key={color}
-            onPress={() => setForm((f) => ({ ...f, color }))}
-            style={[
-              styles.colorDot,
-              { backgroundColor: color },
-              form.color === color && styles.colorSelected,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={`Colour ${color}`}
-          />
-        ))}
+
+      <View style={styles.colorOptions}>
+        {subjectColorOptions.map((color) => {
+          const selected = form.color === color;
+
+          return (
+            <Pressable
+              key={color}
+              onPress={() => setForm((current) => ({ ...current, color }))}
+              style={styles.colorButton}
+              accessibilityRole="button"
+              accessibilityLabel={`Colour ${color}`}
+              accessibilityState={{ selected }}
+            >
+              <View
+                style={[
+                  styles.colorDot,
+                  { backgroundColor: color },
+                  selected && styles.colorSelected,
+                ]}
+              />
+            </Pressable>
+          );
+        })}
       </View>
+
       {errors.color ? <Text style={styles.error}>{errors.color}</Text> : null}
       {errors.form ? <Text style={styles.error}>{errors.form}</Text> : null}
     </FormModalScaffold>
   );
 }
 
-const styles = StyleSheet.create({
-  label: {
-    ...typography.bodyBold,
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  colors: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  colorDot: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  colorSelected: {
-    borderColor: colors.text,
-  },
-  error: {
-    ...typography.caption,
-    color: colors.danger,
-    marginBottom: spacing.md,
-  },
-});
+function createStyles(colors) {
+  return StyleSheet.create({
+    label: {
+      ...typography.bodyBold,
+      color: colors.text,
+      marginBottom: spacing.sm,
+    },
+    colorOptions: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    colorButton: {
+      width: 44,
+      height: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    colorDot: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      borderWidth: 2,
+      borderColor: 'transparent',
+    },
+    colorSelected: {
+      borderColor: colors.text,
+    },
+    error: {
+      ...typography.caption,
+      color: colors.danger ?? colors.error ?? colors.text,
+      marginBottom: spacing.md,
+    },
+  });
+}

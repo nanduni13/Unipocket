@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
-import { colors, radii, spacing, typography } from '../theme';
+
+import { radii, spacing, typography } from '../theme';
+import { useAppTheme } from '../theme/ThemeContext';
 
 export default function PrimaryButton({
   title,
@@ -10,13 +12,24 @@ export default function PrimaryButton({
   variant = 'primary',
   style,
 }) {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const isSecondary = variant === 'secondary';
   const isDanger = variant === 'danger';
-  const isDisabled = disabled || loading;
+  const isDisabled = Boolean(disabled || loading);
+
+  const labelColor = isSecondary
+    ? colors.text
+    : isDanger
+      ? colors.onDanger ?? colors.onError ?? colors.white ?? '#FFFFFF'
+      : colors.onPrimary ?? colors.white ?? '#FFFFFF';
 
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: isDisabled, busy: Boolean(loading) }}
       disabled={isDisabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -29,53 +42,41 @@ export default function PrimaryButton({
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={isSecondary ? colors.primary : colors.white} />
+        <ActivityIndicator color={labelColor} />
       ) : (
-        <Text
-          style={[
-            styles.text,
-            isSecondary && styles.secondaryText,
-            isDanger && styles.dangerText,
-          ]}
-        >
-          {title}
-        </Text>
+        <Text style={[styles.text, { color: labelColor }]}>{title}</Text>
       )}
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  base: {
-    backgroundColor: colors.primary,
-    minHeight: 48,
-    borderRadius: radii.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  secondary: {
-    backgroundColor: colors.primarySoft,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  danger: {
-    backgroundColor: colors.danger,
-  },
-  disabled: {
-    opacity: 0.55,
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  text: {
-    ...typography.bodyBold,
-    color: colors.white,
-  },
-  secondaryText: {
-    color: colors.primaryDark,
-  },
-  dangerText: {
-    color: colors.white,
-  },
-});
+function createStyles(colors) {
+  return StyleSheet.create({
+    base: {
+      backgroundColor: colors.primary,
+      minHeight: 48,
+      borderRadius: radii.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing.lg,
+    },
+    secondary: {
+      backgroundColor: colors.primarySoft ?? colors.lavender ?? colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    danger: {
+      backgroundColor: colors.danger ?? colors.error ?? '#B42336',
+    },
+    disabled: {
+      opacity: 0.55,
+    },
+    pressed: {
+      opacity: 0.85,
+    },
+    text: {
+      ...typography.bodyBold,
+      textAlign: 'center',
+    },
+  });
+}

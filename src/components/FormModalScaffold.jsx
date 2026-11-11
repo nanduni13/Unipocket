@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -10,7 +10,9 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, spacing, typography } from '../theme';
+
+import { spacing, typography } from '../theme';
+import { useAppTheme } from '../theme/ThemeContext';
 
 export default function FormModalScaffold({
   visible,
@@ -20,9 +22,15 @@ export default function FormModalScaffold({
   footer,
 }) {
   const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onRequestClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onRequestClose}
+    >
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -36,7 +44,12 @@ export default function FormModalScaffold({
           <Text style={styles.headerTitle} numberOfLines={1}>
             {title}
           </Text>
-          <Pressable onPress={onRequestClose} hitSlop={10} accessibilityRole="button">
+
+          <Pressable
+            onPress={onRequestClose}
+            hitSlop={10}
+            accessibilityRole="button"
+          >
             <Text style={styles.close}>Close</Text>
           </Pressable>
         </View>
@@ -62,37 +75,42 @@ export default function FormModalScaffold({
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
-  header: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.surface,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  headerTitle: {
-    ...typography.screenTitle,
-    color: colors.text,
-    flex: 1,
-  },
-  close: {
-    ...typography.bodyBold,
-    color: colors.primary,
-  },
-  content: {
-    padding: spacing.lg,
-    paddingBottom: spacing.xl,
-  },
-  footer: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-});
+function createStyles(colors) {
+  return StyleSheet.create({
+    flex: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      backgroundColor: colors.surface,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: spacing.md,
+    },
+    headerTitle: {
+      ...typography.screenTitle,
+      color: colors.text,
+      flex: 1,
+    },
+    close: {
+      ...typography.bodyBold,
+      color: colors.primary,
+    },
+    content: {
+      padding: spacing.lg,
+      paddingBottom: spacing.xl,
+    },
+    footer: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+  });
+}

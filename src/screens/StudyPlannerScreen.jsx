@@ -1,9 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -25,53 +20,30 @@ import LoadingState from '../components/LoadingState';
 import PrimaryButton from '../components/PrimaryButton';
 import TaskCard from '../components/TaskCard';
 import TaskFormModal from '../components/TaskFormModal';
-
 import { useData } from '../context/DataContext';
-import { useForegroundAndMidnightRefresh } from '../hooks/useForegroundAndMidnightRefresh';
 import {
   createTask,
   getAllSubjects,
   getStudyTasksByDate,
   setTaskStatus,
 } from '../database';
-import {
-  createRequestGate,
-  shouldApplyLoadResult,
-} from '../utils/asyncLoad';
+import { useForegroundAndMidnightRefresh } from '../hooks/useForegroundAndMidnightRefresh';
+import { useAppTheme } from '../theme/ThemeContext';
+import { createRequestGate, shouldApplyLoadResult } from '../utils/asyncLoad';
 import {
   formatDisplayDate,
   getLocalDateString,
   parseLocalDateTime,
   shiftLocalDate,
 } from '../utils/dates';
+import { annotateTaskLabels, calcCompletionProgress } from '../utils/filters';
 import { interpretDatePickerEvent } from '../utils/pickerEvents';
-import {
-  ALLOWED_TYPES,
-  shouldMovePlannerToSavedDate,
-} from '../utils/taskTypes';
-import {
-  annotateTaskLabels,
-  calcCompletionProgress,
-} from '../utils/filters';
-
-const theme = {
-  background: '#F7F7FC',
-  surface: '#FFFFFF',
-  purple: '#6D4AFF',
-  purpleDark: '#392278',
-  soft: '#EEE9FF',
-  text: '#25223B',
-  muted: '#686278',
-  border: '#E8E5F1',
-  green: '#19866B',
-};
+import { ALLOWED_TYPES, shouldMovePlannerToSavedDate } from '../utils/taskTypes';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function getWeekDates(dateString) {
   const selected = parseLocalDateTime(dateString) || new Date();
-
-  // Monday is the first day of the displayed week.
   const daysSinceMonday = (selected.getDay() + 6) % 7;
   const monday = shiftLocalDate(selected, -daysSinceMonday);
 
@@ -87,6 +59,8 @@ function getWeekDates(dateString) {
 }
 
 export default function StudyPlannerScreen() {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation();
   const { ready, refreshKey, refresh } = useData();
 
@@ -94,7 +68,6 @@ export default function StudyPlannerScreen() {
   const [tasks, setTasks] = useState([]);
   const [loadedDate, setLoadedDate] = useState(null);
   const [subjects, setSubjects] = useState([]);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -107,8 +80,6 @@ export default function StudyPlannerScreen() {
   const aliveRef = useRef(true);
   const selectedDateRef = useRef(selectedDate);
   const busyRef = useRef(new Set());
-
-  selectedDateRef.current = selectedDate;
 
   useEffect(() => {
     aliveRef.current = true;
@@ -123,7 +94,6 @@ export default function StudyPlannerScreen() {
 
     const dateToLoad = selectedDateRef.current;
     const requestId = gateRef.current.next();
-
     const canApply = () =>
       shouldApplyLoadResult(
         requestId,
@@ -146,9 +116,9 @@ export default function StudyPlannerScreen() {
       setLoadedDate(dateToLoad);
       setError(null);
     } catch (err) {
-      if (!canApply()) return;
-
-      setError(err?.message || 'Could not load study tasks.');
+      if (canApply()) {
+        setError(err?.message || 'Could not load study tasks.');
+      }
     } finally {
       if (canApply()) {
         setLoading(false);
@@ -173,31 +143,22 @@ export default function StudyPlannerScreen() {
   const chooseDate = (dateString) => {
     if (dateString === selectedDateRef.current) return;
 
-    // Invalidate old requests immediately, before the next render.
     gateRef.current.next();
     selectedDateRef.current = dateString;
-
     setError(null);
     setActionError(null);
     setLoading(true);
     setSelectedDate(dateString);
   };
 
-  const selectedDateObj =
-    parseLocalDateTime(selectedDate) || new Date();
+  const selectedDateObj = parseLocalDateTime(selectedDate) || new Date();
 
   const moveDate = (days) => {
-    chooseDate(
-      getLocalDateString(shiftLocalDate(selectedDateObj, days)),
-    );
+    chooseDate(getLocalDateString(shiftLocalDate(selectedDateObj, days)));
   };
 
   const onPickerChange = (event, date) => {
-    const result = interpretDatePickerEvent(
-      event,
-      date,
-      Platform.OS,
-    );
+    const result = interpretDatePickerEvent(event, date, Platform.OS);
 
     if (Platform.OS === 'android') {
       setShowPicker(false);
@@ -209,7 +170,6 @@ export default function StudyPlannerScreen() {
   };
 
   const toggleComplete = async (task) => {
-    // A ref blocks repeat taps immediately, before React rerenders.
     if (busyRef.current.has(task.id)) return;
 
     busyRef.current.add(task.id);
@@ -217,30 +177,23 @@ export default function StudyPlannerScreen() {
     setActionError(null);
 
     try {
-      const nextStatus =
-        task.status === 'completed' ? 'pending' : 'completed';
-
+      const nextStatus = task.status === 'completed' ? 'pending' : 'completed';
       await setTaskStatus(task.id, nextStatus);
 
       if (aliveRef.current) {
         setTasks((current) =>
           current.map((row) =>
-            row.id === task.id
-              ? { ...row, status: nextStatus }
-              : row,
+            row.id === task.id ? { ...row, status: nextStatus } : row,
           ),
         );
 
-        // Reload before releasing the checkbox.
         await load();
       }
 
       refresh();
     } catch (err) {
       if (aliveRef.current) {
-        setActionError(
-          err?.message || 'Could not update this task. Try again.',
-        );
+        setActionError(err?.message || 'Could not update this task. Try again.');
       }
     } finally {
       busyRef.current.delete(task.id);
@@ -261,13 +214,9 @@ export default function StudyPlannerScreen() {
 
     if (
       aliveRef.current &&
-      shouldMovePlannerToSavedDate(
-        selectedDateRef.current,
-        savedDate,
-      )
+      shouldMovePlannerToSavedDate(selectedDateRef.current, savedDate)
     ) {
       chooseDate(savedDate);
-
       Alert.alert(
         'Study task saved',
         `The planner moved to ${formatDisplayDate(savedDate)}.`,
@@ -283,9 +232,7 @@ export default function StudyPlannerScreen() {
   const pendingCount = progress.total - progress.completed;
   const weekDates = getWeekDates(selectedDate);
   const today = getLocalDateString();
-
-  const allDone =
-    progress.total > 0 && progress.completed === progress.total;
+  const allDone = progress.total > 0 && progress.completed === progress.total;
 
   if (!ready || (loading && loadedDate == null)) {
     return <LoadingState message="Preparing your study planner…" />;
@@ -299,6 +246,7 @@ export default function StudyPlannerScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <FlatList
         data={visibleTasks}
+        extraData={busyIds}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
@@ -309,9 +257,7 @@ export default function StudyPlannerScreen() {
             <View style={styles.hero}>
               <Text style={styles.eyebrow}>MAKE TIME FOR WHAT MATTERS</Text>
               <Text style={styles.title}>Study Planner</Text>
-              <Text style={styles.heroDescription}>
-                One focused task at a time.
-              </Text>
+              <Text style={styles.heroDescription}>One focused task at a time.</Text>
 
               <Pressable
                 onPress={() => setShowPicker(true)}
@@ -319,12 +265,8 @@ export default function StudyPlannerScreen() {
                 accessibilityLabel="Choose a study date"
                 style={styles.heroDateButton}
               >
-                <Text style={styles.heroDate}>
-                  {formatDisplayDate(selectedDate)}
-                </Text>
-                <Text style={styles.heroDateHint}>
-                  Tap to choose another date
-                </Text>
+                <Text style={styles.heroDate}>{formatDisplayDate(selectedDate)}</Text>
+                <Text style={styles.heroDateHint}>Tap to choose another date</Text>
               </Pressable>
             </View>
 
@@ -378,29 +320,14 @@ export default function StudyPlannerScreen() {
                     accessibilityLabel={`${formatDisplayDate(day.key)}${
                       isToday ? ', today' : ''
                     }`}
-                    style={[
-                      styles.dayCard,
-                      selected && styles.daySelected,
-                    ]}
+                    style={[styles.dayCard, selected && styles.daySelected]}
                   >
-                    <Text
-                      style={[
-                        styles.dayLabel,
-                        selected && styles.selectedText,
-                      ]}
-                    >
+                    <Text style={[styles.dayLabel, selected && styles.selectedText]}>
                       {day.day}
                     </Text>
-
-                    <Text
-                      style={[
-                        styles.dayNumber,
-                        selected && styles.selectedText,
-                      ]}
-                    >
+                    <Text style={[styles.dayNumber, selected && styles.selectedText]}>
                       {day.number}
                     </Text>
-
                     <View
                       style={[
                         styles.dayDot,
@@ -447,11 +374,7 @@ export default function StudyPlannerScreen() {
                 <View
                   style={[
                     styles.progressFill,
-                    {
-                      width: `${
-                        hasCurrentData ? progress.percent : 0
-                      }%`,
-                    },
+                    { width: `${hasCurrentData ? progress.percent : 0}%` },
                     allDone && styles.completeFill,
                   ]}
                 />
@@ -498,9 +421,7 @@ export default function StudyPlannerScreen() {
                 <Text style={styles.sectionTitle}>
                   {selectedDate === today ? "Today's tasks" : 'Study tasks'}
                 </Text>
-                <Text style={styles.sectionSubtitle}>
-                  Tick a task when you finish it.
-                </Text>
+                <Text style={styles.sectionSubtitle}>Tick a task when you finish it.</Text>
               </View>
 
               <View style={styles.countBadge}>
@@ -512,30 +433,20 @@ export default function StudyPlannerScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View
-            style={
-              item.status === 'completed'
-                ? styles.completedTask
-                : undefined
-            }
-          >
+          <View style={item.status === 'completed' ? styles.completedTask : undefined}>
             <TaskCard
               task={item}
               showCheckbox
               completeDisabled={Boolean(busyIds[item.id])}
               onToggleComplete={toggleComplete}
-              onPress={() =>
-                navigation.navigate('TaskDetails', { taskId: item.id })
-              }
+              onPress={() => navigation.navigate('TaskDetails', { taskId: item.id })}
             />
           </View>
         )}
         ListEmptyComponent={
           !hasCurrentData ? (
             <Text style={styles.message}>
-              {loading
-                ? 'Loading study tasks…'
-                : 'Use Retry above to load this date.'}
+              {loading ? 'Loading study tasks…' : 'Use Retry above to load this date.'}
             </Text>
           ) : (
             <View style={styles.emptyCard}>
@@ -549,8 +460,8 @@ export default function StudyPlannerScreen() {
         }
       />
 
-      {showPicker ? (
-        <View>
+      {showPicker && (
+        <View style={Platform.OS === 'ios' ? styles.pickerPanel : undefined}>
           <DateTimePicker
             value={selectedDateObj}
             mode="date"
@@ -558,14 +469,11 @@ export default function StudyPlannerScreen() {
             onChange={onPickerChange}
           />
 
-          {Platform.OS === 'ios' ? (
-            <PrimaryButton
-              title="Done"
-              onPress={() => setShowPicker(false)}
-            />
-          ) : null}
+          {Platform.OS === 'ios' && (
+            <PrimaryButton title="Done" onPress={() => setShowPicker(false)} />
+          )}
         </View>
-      ) : null}
+      )}
 
       <TaskFormModal
         visible={formVisible}
@@ -586,263 +494,280 @@ export default function StudyPlannerScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: theme.background,
-  },
-  list: {
-    paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 36,
-  },
-  flex: {
-    flex: 1,
-  },
-  hero: {
-    padding: 22,
-    borderRadius: 24,
-    backgroundColor: theme.purpleDark,
-    marginBottom: 14,
-  },
-  eyebrow: {
-    color: '#DDD3FF',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.1,
-    marginBottom: 10,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '800',
-  },
-  heroDescription: {
-    color: '#E6DFFF',
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 7,
-  },
-  heroDateButton: {
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: '#50378F',
-    marginTop: 20,
-    minHeight: 48,
-  },
-  heroDate: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  heroDateHint: {
-    color: '#E6DFFF',
-    fontSize: 11,
-    lineHeight: 17,
-    marginTop: 5,
-  },
-  weekControls: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginTop: 4,
-    marginBottom: 10,
-  },
-  weekButton: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 7,
-  },
-  weekButtonText: {
-    color: theme.muted,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  todayButton: {
-    minHeight: 44,
-    paddingHorizontal: 17,
-    justifyContent: 'center',
-    borderRadius: 13,
-    backgroundColor: theme.soft,
-  },
-  todayText: {
-    color: theme.purpleDark,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  dateStrip: {
-    gap: 8,
-    paddingBottom: 16,
-  },
-  dayCard: {
-    minWidth: 46,
-    minHeight: 87,
-    paddingHorizontal: 9,
-    paddingVertical: 11,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.border,
-    backgroundColor: theme.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  daySelected: {
-    backgroundColor: theme.purple,
-    borderColor: theme.purple,
-  },
-  dayLabel: {
-    color: theme.muted,
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  dayNumber: {
-    color: theme.text,
-    fontSize: 20,
-    fontWeight: '800',
-    marginTop: 8,
-  },
-  selectedText: {
-    color: '#FFFFFF',
-  },
-  dayDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    marginTop: 8,
-    backgroundColor: 'transparent',
-  },
-  todayDot: {
-    backgroundColor: theme.purple,
-  },
-  selectedDot: {
-    backgroundColor: '#FFFFFF',
-  },
-  progressCard: {
-    backgroundColor: theme.surface,
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  progressTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  cardTitle: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  cardSubtitle: {
-    color: theme.muted,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 6,
-  },
-  percentage: {
-    color: theme.purple,
-    fontSize: 27,
-    fontWeight: '800',
-  },
-  progressTrack: {
-    height: 10,
-    borderRadius: 8,
-    backgroundColor: theme.soft,
-    overflow: 'hidden',
-    marginTop: 18,
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 8,
-    backgroundColor: theme.purple,
-  },
-  completeFill: {
-    backgroundColor: theme.green,
-  },
-  progressHint: {
-    color: theme.muted,
-    fontSize: 11,
-    lineHeight: 18,
-    marginTop: 11,
-  },
-  countsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 18,
-  },
-  countItem: {
-    flexGrow: 1,
-    flexBasis: 70,
-    padding: 11,
-    alignItems: 'center',
-    borderRadius: 13,
-    backgroundColor: theme.background,
-  },
-  countNumber: {
-    color: theme.purpleDark,
-    fontSize: 21,
-    fontWeight: '800',
-  },
-  greenText: {
-    color: theme.green,
-  },
-  countLabel: {
-    color: theme.muted,
-    fontSize: 10,
-    marginTop: 5,
-  },
-  addButton: {
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  sectionHeading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 18,
-    marginBottom: 15,
-  },
-  sectionTitle: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  sectionSubtitle: {
-    color: theme.muted,
-    fontSize: 12,
-    marginTop: 5,
-  },
-  countBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 11,
-    backgroundColor: theme.soft,
-  },
-  badgeText: {
-    color: theme.purpleDark,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  completedTask: {
-    borderLeftWidth: 3,
-    borderLeftColor: theme.green,
-    paddingLeft: 7,
-  },
-  emptyCard: {
-    padding: 16,
-    backgroundColor: theme.surface,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  message: {
-    color: theme.muted,
-    fontSize: 13,
-    textAlign: 'center',
-    paddingVertical: 26,
-  },
-});
+function createStyles(colors) {
+  const muted = colors.muted ?? colors.textSecondary ?? colors.textMuted ?? colors.text;
+  const accentSurface = colors.lavender ?? colors.surface;
+  const onPrimary = colors.onPrimary ?? '#FFFFFF';
+  const success = colors.success ?? colors.primary;
+
+  return StyleSheet.create({
+    safe: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    list: {
+      paddingHorizontal: 18,
+      paddingTop: 14,
+      paddingBottom: 36,
+    },
+    flex: {
+      flex: 1,
+    },
+    hero: {
+      padding: 22,
+      borderRadius: 24,
+      backgroundColor: accentSurface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 14,
+    },
+    eyebrow: {
+      color: colors.primary,
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 1.1,
+      marginBottom: 10,
+    },
+    title: {
+      color: colors.text,
+      fontSize: 28,
+      fontWeight: '800',
+    },
+    heroDescription: {
+      color: muted,
+      fontSize: 14,
+      lineHeight: 21,
+      marginTop: 7,
+    },
+    heroDateButton: {
+      padding: 14,
+      borderRadius: 14,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginTop: 20,
+      minHeight: 48,
+    },
+    heroDate: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    heroDateHint: {
+      color: muted,
+      fontSize: 11,
+      lineHeight: 17,
+      marginTop: 5,
+    },
+    weekControls: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+      marginTop: 4,
+      marginBottom: 10,
+    },
+    weekButton: {
+      minHeight: 44,
+      justifyContent: 'center',
+      paddingHorizontal: 7,
+    },
+    weekButtonText: {
+      color: muted,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    todayButton: {
+      minHeight: 44,
+      paddingHorizontal: 17,
+      justifyContent: 'center',
+      borderRadius: 13,
+      backgroundColor: accentSurface,
+    },
+    todayText: {
+      color: colors.text,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    dateStrip: {
+      gap: 8,
+      paddingBottom: 16,
+    },
+    dayCard: {
+      minWidth: 46,
+      minHeight: 87,
+      paddingHorizontal: 9,
+      paddingVertical: 11,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    daySelected: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    dayLabel: {
+      color: muted,
+      fontSize: 11,
+      fontWeight: '500',
+    },
+    dayNumber: {
+      color: colors.text,
+      fontSize: 20,
+      fontWeight: '800',
+      marginTop: 8,
+    },
+    selectedText: {
+      color: onPrimary,
+    },
+    dayDot: {
+      width: 5,
+      height: 5,
+      borderRadius: 3,
+      marginTop: 8,
+      backgroundColor: 'transparent',
+    },
+    todayDot: {
+      backgroundColor: colors.primary,
+    },
+    selectedDot: {
+      backgroundColor: onPrimary,
+    },
+    progressCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      padding: 18,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    progressTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    cardTitle: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    cardSubtitle: {
+      color: muted,
+      fontSize: 12,
+      lineHeight: 18,
+      marginTop: 6,
+    },
+    percentage: {
+      color: colors.primary,
+      fontSize: 27,
+      fontWeight: '800',
+    },
+    progressTrack: {
+      height: 10,
+      borderRadius: 8,
+      backgroundColor: colors.lavender ?? colors.border ?? colors.background,
+      overflow: 'hidden',
+      marginTop: 18,
+    },
+    progressFill: {
+      height: '100%',
+      borderRadius: 8,
+      backgroundColor: colors.primary,
+    },
+    completeFill: {
+      backgroundColor: success,
+    },
+    progressHint: {
+      color: muted,
+      fontSize: 11,
+      lineHeight: 18,
+      marginTop: 11,
+    },
+    countsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginTop: 18,
+    },
+    countItem: {
+      flexGrow: 1,
+      flexBasis: 70,
+      padding: 11,
+      alignItems: 'center',
+      borderRadius: 13,
+      backgroundColor: colors.background,
+    },
+    countNumber: {
+      color: colors.text,
+      fontSize: 21,
+      fontWeight: '800',
+    },
+    greenText: {
+      color: success,
+    },
+    countLabel: {
+      color: muted,
+      fontSize: 10,
+      marginTop: 5,
+    },
+    addButton: {
+      marginTop: 16,
+      marginBottom: 8,
+    },
+    sectionHeading: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginTop: 18,
+      marginBottom: 15,
+    },
+    sectionTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: '700',
+    },
+    sectionSubtitle: {
+      color: muted,
+      fontSize: 12,
+      marginTop: 5,
+    },
+    countBadge: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 11,
+      backgroundColor: accentSurface,
+    },
+    badgeText: {
+      color: colors.text,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    completedTask: {
+      borderLeftWidth: 3,
+      borderLeftColor: success,
+      paddingLeft: 7,
+    },
+    emptyCard: {
+      padding: 16,
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    message: {
+      color: muted,
+      fontSize: 13,
+      textAlign: 'center',
+      paddingVertical: 26,
+    },
+    pickerPanel: {
+      backgroundColor: colors.surface,
+      padding: 12,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+  });
+}

@@ -8,6 +8,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import LoadingState from './src/components/LoadingState';
 import ErrorState from './src/components/ErrorState';
 import { colors } from './src/theme';
+import { ThemeProvider } from './src/theme/ThemeContext';
 
 function Root() {
   const { ready, initError, retryInit } = useData();
@@ -35,6 +36,7 @@ function Root() {
 
 export default function App() {
   return (
+    <ThemeProvider>
     <SafeAreaProvider>
       <DataProvider>
         <View style={styles.root}>
@@ -42,6 +44,7 @@ export default function App() {
         </View>
       </DataProvider>
     </SafeAreaProvider>
+    </ThemeProvider>
   );
 }
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Image,
   RefreshControl,
@@ -18,17 +18,19 @@ import LoadingState from '../components/LoadingState';
 import PrimaryButton from '../components/PrimaryButton';
 import TaskCard from '../components/TaskCard';
 import TaskFormModal from '../components/TaskFormModal';
+import ThemeToggle from '../components/ThemeToggle';
 
 import { useData } from '../context/DataContext';
 import { createTask, getAllSubjects, getDashboardData } from '../database';
 import { useForegroundAndMidnightRefresh } from '../hooks/useForegroundAndMidnightRefresh';
-import { studentCard, studentUi as ui } from '../theme/studentUi';
+import { useAppTheme } from '../theme/ThemeContext';
 import { createRequestGate, shouldApplyLoadResult } from '../utils/asyncLoad';
 import { formatDisplayDate, getGreeting } from '../utils/dates';
 import { calcCompletionProgress } from '../utils/filters';
 import { ALLOWED_TYPES } from '../utils/taskTypes';
 
 function TaskSection({
+  styles,
   title,
   tasks,
   emptyIcon,
@@ -70,13 +72,14 @@ function TaskSection({
 export default function DashboardScreen() {
   const navigation = useNavigation();
   const { ready, refreshKey, refresh } = useData();
+  const { colors: ui } = useAppTheme();
+  const styles = useMemo(() => createStyles(ui), [ui]);
 
   const [data, setData] = useState(null);
   const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-
   const [formVisible, setFormVisible] = useState(false);
   const [formType, setFormType] = useState('assignment');
 
@@ -162,10 +165,8 @@ export default function DashboardScreen() {
   const todayTasks = data.todayStudyTasks ?? [];
   const upcoming = data.upcoming ?? [];
   const overdue = data.overdueAssignments ?? [];
-
   const focusTask =
     todayTasks.find((task) => task.status === 'pending') ?? null;
-
   const progress = calcCompletionProgress(todayTasks);
 
   return (
@@ -182,23 +183,30 @@ export default function DashboardScreen() {
             }}
             colors={[ui.primary]}
             tintColor={ui.primary}
+            progressBackgroundColor={ui.surface}
           />
         }
       >
         <View style={styles.brandHeader}>
-          <Image
-            source={require('../../assets/unipocket-logo.png')}
-            style={styles.logo}
-            resizeMode="contain"
-            accessible
-            accessibilityLabel="UniPocket"
-          />
+          <View style={styles.logoPlate}>
+            <Image
+              source={require('../../assets/unipocket-logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+              accessible
+              accessibilityLabel="UniPocket"
+            />
+          </View>
+
+          <ThemeToggle />
         </View>
 
         <View style={styles.greeting}>
           <Text style={styles.date}>{formatDisplayDate(data.today)}</Text>
           <Text style={styles.greetingTitle}>{getGreeting()}!</Text>
-          <Text style={styles.subtitle}>Here’s your study plan for today.</Text>
+          <Text style={styles.subtitle}>
+            Here’s your study plan for today.
+          </Text>
         </View>
 
         <ErrorBanner message={error} onRetry={load} />
@@ -233,6 +241,7 @@ export default function DashboardScreen() {
         </View>
 
         <TaskSection
+          styles={styles}
           title="Today's study tasks"
           tasks={todayTasks}
           emptyIcon="book-outline"
@@ -243,16 +252,15 @@ export default function DashboardScreen() {
 
         {overdue.length > 0 ? (
           <TaskSection
+            styles={styles}
             title="Overdue assignments"
             tasks={overdue}
-            emptyIcon="time-outline"
-            emptyTitle="No overdue assignments"
-            emptyMessage=""
             onOpenTask={openTask}
           />
         ) : null}
 
         <TaskSection
+          styles={styles}
           title="Upcoming deadlines"
           tasks={upcoming}
           emptyIcon="calendar-outline"
@@ -280,78 +288,96 @@ export default function DashboardScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: ui.background,
-  },
-  content: {
-    paddingHorizontal: 18,
-    paddingTop: 12,
-    paddingBottom: 32,
-  },
-  brandHeader: {
-    alignItems: 'flex-start',
-  },
-  logo: {
-    width: 176,
-    height: 52,
-  },
-  greeting: {
-    marginTop: 12,
-    marginBottom: 18,
-  },
-  date: {
-    color: ui.muted,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  greetingTitle: {
-    color: ui.text,
-    fontSize: 28,
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  subtitle: {
-    color: ui.muted,
-    fontSize: 14,
-    marginTop: 4,
-  },
-  addRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 4,
-  },
-  addButton: {
-    flexGrow: 1,
-    flexBasis: 100,
-  },
-  section: {
-    marginTop: 20,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    flex: 1,
-    color: ui.text,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  countBadge: {
-    backgroundColor: ui.lavender,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-  },
-  countText: {
-    color: ui.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  emptyCard: studentCard,
-});
+function createStyles(ui) {
+  return StyleSheet.create({
+    safe: {
+      flex: 1,
+      backgroundColor: ui.background,
+    },
+    content: {
+      paddingHorizontal: 18,
+      paddingTop: 12,
+      paddingBottom: 32,
+    },
+    brandHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    logoPlate: {
+      flexShrink: 1,
+      width: 184,
+      paddingHorizontal: 8,
+      borderRadius: 14,
+      backgroundColor: '#FFFFFF',
+    },
+    logo: {
+      width: '100%',
+      height: 48,
+    },
+    greeting: {
+      marginTop: 12,
+      marginBottom: 18,
+    },
+    date: {
+      color: ui.muted,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    greetingTitle: {
+      color: ui.text,
+      fontSize: 28,
+      fontWeight: '800',
+      marginTop: 4,
+    },
+    subtitle: {
+      color: ui.muted,
+      fontSize: 14,
+      marginTop: 4,
+    },
+    addRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 4,
+    },
+    addButton: {
+      flexGrow: 1,
+      flexBasis: 100,
+    },
+    section: {
+      marginTop: 20,
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginBottom: 12,
+    },
+    sectionTitle: {
+      flex: 1,
+      color: ui.text,
+      fontSize: 18,
+      fontWeight: '700',
+    },
+    countBadge: {
+      backgroundColor: ui.lavender,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 12,
+    },
+    countText: {
+      color: ui.primary,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    emptyCard: {
+      backgroundColor: ui.surface,
+      borderColor: ui.border,
+      borderWidth: 1,
+      borderRadius: 20,
+      padding: 16,
+    },
+  });
+}

@@ -1,12 +1,20 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Image,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -16,6 +24,8 @@ import ErrorBanner from '../components/ErrorBanner';
 import ErrorState from '../components/ErrorState';
 import LoadingState from '../components/LoadingState';
 import PrimaryButton from '../components/PrimaryButton';
+import ProfileModal, { loadStudentProfile } from '../components/ProfileModal';
+import ProfileViewModal from '../components/ProfileViewModal';
 import TaskCard from '../components/TaskCard';
 import TaskFormModal from '../components/TaskFormModal';
 import ThemeToggle from '../components/ThemeToggle';
@@ -42,7 +52,6 @@ function TaskSection({
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>{title}</Text>
-
         <View style={styles.countBadge}>
           <Text style={styles.countText}>{tasks.length}</Text>
         </View>
@@ -83,14 +92,50 @@ export default function DashboardScreen() {
   const [formVisible, setFormVisible] = useState(false);
   const [formType, setFormType] = useState('assignment');
 
+  const [profile, setProfile] = useState(null);
+  const [profileMode, setProfileMode] = useState(null);
+  const [profileReady, setProfileReady] = useState(false);
+  const [profileError, setProfileError] = useState(null);
+  const [profileReadAttempt, setProfileReadAttempt] = useState(0);
+
   const gateRef = useRef(createRequestGate());
   const activeRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+
+    async function readProfile() {
+      try {
+        const savedProfile = await loadStudentProfile();
+
+        if (active) {
+          setProfile(savedProfile);
+          setProfileError(null);
+          setProfileReady(true);
+        }
+      } catch {
+        if (active) {
+          setProfileError('Could not load your student profile.');
+        }
+      }
+    }
+
+    readProfile();
+
+    return () => {
+      active = false;
+    };
+  }, [profileReadAttempt]);
+
+  const retryProfile = () => {
+    setProfileError(null);
+    setProfileReadAttempt((attempt) => attempt + 1);
+  };
 
   const load = useCallback(async () => {
     if (!ready || !activeRef.current) return;
 
     const requestId = gateRef.current.next();
-
     const canApply = () =>
       shouldApplyLoadResult(
         requestId,
@@ -165,9 +210,12 @@ export default function DashboardScreen() {
   const todayTasks = data.todayStudyTasks ?? [];
   const upcoming = data.upcoming ?? [];
   const overdue = data.overdueAssignments ?? [];
-  const focusTask =
-    todayTasks.find((task) => task.status === 'pending') ?? null;
+  const focusTask = todayTasks.find((task) => task.status === 'pending') ?? null;
   const progress = calcCompletionProgress(todayTasks);
+  const greeting = getGreeting();
+  const greetingTitle = profile?.name
+    ? `${greeting}, ${profile.name}!`
+    : `${greeting}!`;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -198,18 +246,34 @@ export default function DashboardScreen() {
             />
           </View>
 
-          <ThemeToggle />
+          <View style={styles.headerActions}>
+            <ThemeToggle />
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open student profile"
+              accessibilityState={{ disabled: !profileReady }}
+              disabled={!profileReady}
+              onPress={() => setProfileMode('view')}
+              style={({ pressed }) => [
+                styles.profileButton,
+                !profileReady && styles.profileDisabled,
+                pressed && styles.profilePressed,
+              ]}
+            >
+              <Ionicons name="person-outline" size={22} color={ui.primary} />
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.greeting}>
           <Text style={styles.date}>{formatDisplayDate(data.today)}</Text>
-          <Text style={styles.greetingTitle}>{getGreeting()}!</Text>
-          <Text style={styles.subtitle}>
-            Here’s your study plan for today.
-          </Text>
+          <Text style={styles.greetingTitle}>{greetingTitle}</Text>
+          <Text style={styles.subtitle}>Here’s your study plan for today.</Text>
         </View>
 
         <ErrorBanner message={error} onRetry={load} />
+        <ErrorBanner message={profileError} onRetry={retryProfile} />
 
         <DashboardBento
           focusTask={focusTask}
@@ -250,14 +314,14 @@ export default function DashboardScreen() {
           onOpenTask={openTask}
         />
 
-        {overdue.length > 0 ? (
+        {overdue.length > 0 && (
           <TaskSection
             styles={styles}
             title="Overdue assignments"
             tasks={overdue}
             onOpenTask={openTask}
           />
-        ) : null}
+        )}
 
         <TaskSection
           styles={styles}
@@ -284,11 +348,31 @@ export default function DashboardScreen() {
           navigation.navigate('Subjects');
         }}
       />
+
+      {profileMode === 'view' && (
+        <ProfileViewModal
+          visible
+          profile={profile}
+          onClose={() => setProfileMode(null)}
+          onEdit={() => setProfileMode('edit')}
+        />
+      )}
+
+      {profileMode === 'edit' && (
+        <ProfileModal
+          visible
+          profile={profile}
+          onSaved={setProfile}
+          onClose={() => setProfileMode('view')}
+        />
+      )}
     </SafeAreaView>
   );
 }
 
 function createStyles(ui) {
+  const muted = ui.muted ?? ui.textSecondary ?? ui.text;
+
   return StyleSheet.create({
     safe: {
       flex: 1,
@@ -316,12 +400,33 @@ function createStyles(ui) {
       width: '100%',
       height: 48,
     },
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    profileButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      borderWidth: 1,
+      borderColor: ui.border,
+      backgroundColor: ui.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    profileDisabled: {
+      opacity: 0.5,
+    },
+    profilePressed: {
+      opacity: 0.75,
+    },
     greeting: {
       marginTop: 12,
       marginBottom: 18,
     },
     date: {
-      color: ui.muted,
+      color: muted,
       fontSize: 13,
       fontWeight: '600',
     },
@@ -332,7 +437,7 @@ function createStyles(ui) {
       marginTop: 4,
     },
     subtitle: {
-      color: ui.muted,
+      color: muted,
       fontSize: 14,
       marginTop: 4,
     },
@@ -362,7 +467,7 @@ function createStyles(ui) {
       fontWeight: '700',
     },
     countBadge: {
-      backgroundColor: ui.lavender,
+      backgroundColor: ui.lavender ?? ui.primarySoft ?? ui.surface,
       paddingHorizontal: 10,
       paddingVertical: 5,
       borderRadius: 12,
